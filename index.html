@@ -921,45 +921,62 @@
                 }, 50);
             },
             fastLogin: async function(roleType) { 
-    UI.showLoading(true, "Memasuki Sistem Demo..."); 
+    UI.showLoading(true, "Membuat Sesi Sandbox Uji Coba..."); 
     try {
-        // 1. OTOMATIS AKTIFKAN MODE LOKAL (Bypass Cloud) agar data transaksi demo tidak mengotori Firebase
+        // 1. PAKSA MASUK MODE LOKAL (Bypass Cloud)
+        // Ini tameng utama agar database Firebase Anda tidak terkotori oleh user demo
         isManualLocalMode = true;
         localStorage.setItem('erp_manual_local_mode', 'true');
         if (typeof DBService !== 'undefined' && DBService.updateNetworkStatus) {
             DBService.updateNetworkStatus();
         }
 
-        // 2. Cek apakah akun demo sudah ada di memory lokal, jika belum ada buat otomatis
-        let target = dbUsers.find(u => u.Username === roleType); 
-        if(!target) {
-            target = {
-                UID: "DEMO_" + roleType.toUpperCase() + "_" + Date.now().toString().slice(-4), 
-                Username: roleType, 
-                Password: "123", 
-                Nama_Lengkap: "Uji Coba " + (roleType === 'agen' ? 'Agen' : 'Pelanggan'), 
-                No_HP: "08123456789", 
-                Role: roleType === 'agen' ? 'Agen' : 'Pelanggan', 
-                Status: "AKTIF",
-                Timestamp: new Date().toISOString()
-            };
-            dbUsers.push(target);
-            localStorage.setItem('erp_dbUsers', JSON.stringify(dbUsers));
-        }
+        // 2. GENERATE ID UNIK ACAK
+        // Agar setiap orang baru yang mencoba mendapatkan akun & dashboard yang fresh/kosong
+        const randID = Math.floor(1000 + Math.random() * 9000); // Angka 4 digit acak
+        const uniqueUsername = (roleType === 'agen' ? 'demo_agen_' : 'demo_pelanggan_') + randID;
         
-        // 3. Set session user aktif ke akun demo ini
-        sessionUser = target;
+        // 3. ISOLASI & BERSIHKAN SAMPAH DEMO LAMA
+        // Menghapus data uji coba dari orang sebelumnya khusus di browser ini agar tidak menumpuk
+        dbAppointments = dbAppointments.filter(a => !a.Username.startsWith('demo_'));
+        dbFinance = dbFinance.filter(f => !f.Keterangan.includes('TRX: TRX-demo_') && !f.Keterangan.includes('TRX: demo_'));
+        dbUsers = dbUsers.filter(u => !u.Username.startsWith('demo_'));
+        
+        // 4. DAFTARKAN USER GUEST BARU KE MEMORI LOKAL
+        const newDemoUser = {
+            UID: "DEMO_" + Date.now() + "_" + randID, 
+            Username: uniqueUsername, 
+            Password: "123", 
+            Nama_Lengkap: (roleType === 'agen' ? 'Mitra Agen (Uji Coba)' : 'Pelanggan Baru (Uji Coba)'), 
+            No_HP: "08123456789", 
+            Role: roleType === 'agen' ? 'Agen' : 'Pelanggan', 
+            Status: "AKTIF",
+            Timestamp: new Date().toISOString()
+        };
+        dbUsers.push(newDemoUser);
+        
+        // 5. RESET KERANJANG BELANJA
+        // Memastikan keranjang belanja dari penguji sebelumnya tidak terbawa
+        currentCart = [];
+        
+        // 6. SIMPAN PARAMETER BERSIH KE STORAGE PERANGKAT
+        localStorage.setItem('erp_dbUsers', JSON.stringify(dbUsers));
+        localStorage.setItem('erp_dbAppointments', JSON.stringify(dbAppointments));
+        localStorage.setItem('erp_dbFinance', JSON.stringify(dbFinance));
+
+        // 7. AKTIFKAN SESSION LOGIN
+        sessionUser = newDemoUser;
         localStorage.setItem('erp_sessionUser', JSON.stringify(sessionUser));
 
         setTimeout(() => { 
             UI.showLoading(false); 
-            UI.toast("Masuk sebagai " + target.Nama_Lengkap + " (Mode Lokal)", "success"); 
+            UI.toast("Sesi Demo Dimulai!", "success"); 
             UI.launchMainApp(); 
         }, 600); 
     } catch (err) {
         UI.showLoading(false);
         AppLogger.logError(err, "Auth.fastLogin");
-        UI.toast("Gagal memuat mode demo", "error");
+        UI.toast("Gagal memuat sesi demo", "error");
     }
 },
             handleLogin: async function(e) { 

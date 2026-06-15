@@ -921,30 +921,47 @@
                 }, 50);
             },
             fastLogin: async function(roleType) { 
-                UI.showLoading(true, "Memasuki Sistem..."); 
-                try {
-                    const email = roleType + "@erp.local";
-                    const pass = "123456"; 
-                    
-                    if(isFirebaseActive && navigator.onLine && !isManualLocalMode) {
-                        await auth.signInWithEmailAndPassword(email, pass);
-                    } else {
-                        const target = dbUsers.find(u => u.Username === roleType); 
-                        if(!target) throw new Error("Akun demo tidak ditemukan di cache lokal!");
-                        sessionUser = target;
-                        localStorage.setItem('erp_sessionUser', JSON.stringify(sessionUser));
-                    }
-                    setTimeout(() => { 
-                        UI.showLoading(false); 
-                        UI.toast("Selamat Datang", "success"); 
-                        UI.launchMainApp(); 
-                    }, 600); 
-                } catch (err) {
-                    UI.showLoading(false);
-                    AppLogger.logError(err, "Auth.fastLogin");
-                    UI.toast("Gagal fast login", "error");
-                }
-            },
+    UI.showLoading(true, "Memasuki Sistem Demo..."); 
+    try {
+        // 1. OTOMATIS AKTIFKAN MODE LOKAL (Bypass Cloud) agar data transaksi demo tidak mengotori Firebase
+        isManualLocalMode = true;
+        localStorage.setItem('erp_manual_local_mode', 'true');
+        if (typeof DBService !== 'undefined' && DBService.updateNetworkStatus) {
+            DBService.updateNetworkStatus();
+        }
+
+        // 2. Cek apakah akun demo sudah ada di memory lokal, jika belum ada buat otomatis
+        let target = dbUsers.find(u => u.Username === roleType); 
+        if(!target) {
+            target = {
+                UID: "DEMO_" + roleType.toUpperCase() + "_" + Date.now().toString().slice(-4), 
+                Username: roleType, 
+                Password: "123", 
+                Nama_Lengkap: "Uji Coba " + (roleType === 'agen' ? 'Agen' : 'Pelanggan'), 
+                No_HP: "08123456789", 
+                Role: roleType === 'agen' ? 'Agen' : 'Pelanggan', 
+                Status: "AKTIF",
+                Timestamp: new Date().toISOString()
+            };
+            dbUsers.push(target);
+            localStorage.setItem('erp_dbUsers', JSON.stringify(dbUsers));
+        }
+        
+        // 3. Set session user aktif ke akun demo ini
+        sessionUser = target;
+        localStorage.setItem('erp_sessionUser', JSON.stringify(sessionUser));
+
+        setTimeout(() => { 
+            UI.showLoading(false); 
+            UI.toast("Masuk sebagai " + target.Nama_Lengkap + " (Mode Lokal)", "success"); 
+            UI.launchMainApp(); 
+        }, 600); 
+    } catch (err) {
+        UI.showLoading(false);
+        AppLogger.logError(err, "Auth.fastLogin");
+        UI.toast("Gagal memuat mode demo", "error");
+    }
+},
             handleLogin: async function(e) { 
                 e.preventDefault(); 
                 UI.showLoading(true); 

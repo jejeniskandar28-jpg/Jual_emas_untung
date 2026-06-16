@@ -1905,19 +1905,66 @@
                 reader.readAsText(file);
             },
             clearData: function() {
-                const mode = document.getElementById('clear-mode').value; let msg = mode === 'TRANSAKSI' ? "Seluruh riwayat antrean, kasir, dan jurnal keuangan akan DIHAPUS PERMANEN. Anda yakin?" : "SEMUA DATA (termasuk harga, jasa, & pengaturan) akan DIHAPUS kembali ke kondisi pabrik. Anda yakin?";
-                Swal.fire({ title: 'Konfirmasi Hapus Data', text: msg, icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', cancelButtonColor: '#3085d6', confirmButtonText: 'Ya, Hapus Sekarang!' }).then(async (result) => { 
-                    if (result.isConfirmed) { 
-                        try {
-                            if (mode === 'TRANSAKSI') { 
-                                dbAppointments = []; dbFinance = []; await AppStorage.save(); UI.toast("Riwayat Transaksi Dibersihkan!", "success"); UI.renderAdminLaporanView(); UI.renderAdminFinanceView(); 
-                            } else if (mode === 'ALL') { 
-                                dbAppointments = []; dbFinance = []; dbGoldSettings = []; dbServices = []; dbTestimonials = []; dbTemplates = []; await AppStorage.save(); Swal.fire('Direset', 'Aplikasi telah dikembalikan ke kondisi awal.', 'success').then(() => { location.reload(); }); 
-                            }
-                        } catch(err) { AppLogger.logError(err, "API.clearData"); }
-                    } 
-                });
+    const mode = document.getElementById('clear-mode').value; let msg = mode === 'TRANSAKSI' ? "Seluruh riwayat antrean, kasir, dan jurnal keuangan akan DIHAPUS PERMANEN. Anda yakin?" : "SEMUA DATA (termasuk harga, jasa, & pengaturan) akan DIHAPUS kembali ke kondisi pabrik. Anda yakin?";
+    Swal.fire({ title: 'Konfirmasi Hapus Data', text: msg, icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', cancelButtonColor: '#3085d6', confirmButtonText: 'Ya, Hapus Sekarang!' }).then(async (result) => { 
+        if (result.isConfirmed) { 
+            try {
+                UI.showLoading(true, "Menghapus Data di Firebase Cloud Server...");
+
+                // --- PERBAIKAN UTAMA: HAPUS DOKUMEN DI FIREBASE SEBELUM ARRAY LOKAL DIKOSONGKAN ---
+                if (isFirebaseActive && !isManualLocalMode) {
+                    const batch = db.batch();
+                    
+                    if (mode === 'TRANSAKSI') {
+                        // Daftarkan referensi ID dokumen transaksi untuk dihapus massal dari server
+                        dbAppointments.forEach(apt => {
+                            batch.delete(db.collection('appointments').doc(apt.UID));
+                        });
+                        dbFinance.forEach(fin => {
+                            batch.delete(db.collection('finance').doc(fin.UID));
+                        });
+                    } else if (mode === 'ALL') {
+                        // Daftarkan referensi ID semua parameter harga, jasa, dan histori untuk dihapus dari server
+                        dbAppointments.forEach(apt => batch.delete(db.collection('appointments').doc(apt.UID)));
+                        dbFinance.forEach(fin => batch.delete(db.collection('finance').doc(fin.UID)));
+                        dbGoldSettings.forEach(gold => batch.delete(db.collection('gold_settings').doc(gold.UID)));
+                        dbServices.forEach(s => batch.delete(db.collection('services').doc(s.UID)));
+                        dbTemplates.forEach(t => batch.delete(db.collection('templates').doc(t.UID)));
+                        dbTestimonials.forEach(ts => batch.delete(db.collection('testimonials').doc(ts.UID)));
+                    }
+                    
+                    // Tembakkan perintah hapus permanen secara massal ke server cloud Firebase
+                    await batch.commit();
+                }
+
+                // --- PROSES PEMBERSIHAN MEMORI LOKAL BROWSER ---
+                if (mode === 'TRANSAKSI') { 
+                    dbAppointments = []; 
+                    dbFinance = []; 
+                    await AppStorage.save(); 
+                    UI.showLoading(false);
+                    UI.toast("Riwayat Transaksi Cloud & Lokal Berhasil Dihapus!", "success"); 
+                    UI.renderAdminLaporanView(); 
+                    UI.renderAdminFinanceView(); 
+                } else if (mode === 'ALL') { 
+                    dbAppointments = []; 
+                    dbFinance = []; 
+                    dbGoldSettings = []; 
+                    dbServices = []; 
+                    dbTestimonials = []; 
+                    dbTemplates = []; 
+                    await AppStorage.save(); 
+                    UI.showLoading(false);
+                    Swal.fire('Direset', 'Semua data di Cloud dan Lokal telah bersih total.', 'success').then(() => { location.reload(); }); 
+                }
+            } catch(err) { 
+                UI.showLoading(false);
+                AppLogger.logError(err, "API.clearData"); 
+                UI.toast("Gagal menghapus data di server cloud", "error");
             }
+        } 
+    });
+}
         };
 
         const UI = {

@@ -979,6 +979,105 @@
         UI.toast("Gagal memuat sesi demo", "error");
     }
 },
+            handleLogin: async function(e) { 
+                e.preventDefault(); 
+                UI.showLoading(true); 
+                const userIn = document.getElementById('login-username').value; 
+                const passIn = document.getElementById('login-password').value; 
+                const email = userIn + "@erp.local";
+
+                try {
+                    if(isFirebaseActive && navigator.onLine && !isManualLocalMode) {
+                        const userCredential = await auth.signInWithEmailAndPassword(email, passIn);
+                        const target = dbUsers.find(u => u.UID === userCredential.user.uid) || dbUsers.find(u => u.Username === userIn);
+                        if(!target) throw new Error("Data user tidak ditemukan di database.");
+                        if(target.Status !== "AKTIF") {
+                            await auth.signOut();
+                            throw new Error("Akun Anda dibekukan!");
+                        }
+                        sessionUser = target;
+                        localStorage.setItem('erp_sessionUser', JSON.stringify(sessionUser));
+                    } else {
+                        const target = dbUsers.find(u => u.Username === userIn && u.Password === passIn); 
+                        if(!target) throw new Error("Username atau Password salah (Mode Lokal)!"); 
+                        if(target.Status !== "AKTIF") throw new Error("Akun Anda dibekukan!"); 
+                        sessionUser = target; 
+                        localStorage.setItem('erp_sessionUser', JSON.stringify(sessionUser));
+                    }
+
+                    setTimeout(() => { 
+                        UI.showLoading(false); 
+                        UI.toast("Selamat Datang, " + sessionUser.Nama_Lengkap, "success"); 
+                        UI.launchMainApp(); 
+                    }, 500); 
+                } catch (err) {
+                    UI.showLoading(false);
+                    AppLogger.logError(err, "Auth.handleLogin");
+                    UI.toast(err.message || "Gagal Login", "error");
+                }
+            },
+            handleRegister: async function(e) { 
+                e.preventDefault(); 
+                UI.showLoading(true); 
+                const user = document.getElementById('reg-username').value; 
+                const pass = document.getElementById('reg-password').value;
+                const email = user + "@erp.local";
+                
+                if(dbUsers.find(u=>u.Username===user)) {
+                    UI.showLoading(false);
+                    return Swal.fire("Gagal", "Username terpakai", "error"); 
+                }
+                
+                try {
+                    let uid = "U"+Date.now();
+                    if(isFirebaseActive && navigator.onLine && !isManualLocalMode) {
+                        const userCredential = await auth.createUserWithEmailAndPassword(email, pass);
+                        uid = userCredential.user.uid;
+                    }
+
+                    dbUsers.push({ UID: uid, Username: user, Password: pass, Nama_Lengkap: document.getElementById('reg-nama').value, No_HP: document.getElementById('reg-hp').value, Role: "Pelanggan", Status: "AKTIF", Timestamp: new Date().toISOString() }); 
+                    await AppStorage.save();
+
+                    if(isFirebaseActive && navigator.onLine && !isManualLocalMode) {
+                        await auth.signOut(); // Paksa user untuk login manual
+                    }
+
+                    UI.showLoading(false);
+                    Swal.fire("Sukses", "Akun Pelanggan Terdaftar! Silakan Login.", "success"); 
+                    UI.switchAuth(false); 
+                } catch (err) {
+                    UI.showLoading(false);
+                    AppLogger.logError(err, "Auth.handleRegister");
+                    Swal.fire("Gagal Daftar", err.message, "error");
+                }
+            },
+            handleLogout: async function() { 
+                try {
+                    if(isFirebaseActive && navigator.onLine) {
+                        await auth.signOut();
+                    }
+                } catch (err) {
+                    AppLogger.logError(err, "Auth.handleLogout");
+                }
+
+                sessionUser = null; currentCart = []; editAptId = null; 
+                localStorage.removeItem('erp_sessionUser');
+
+                document.getElementById('app-content').style.display = 'none'; 
+                document.getElementById('auth-wrapper').style.display = 'flex'; 
+                document.getElementById('btn-hamburger').style.display = 'block'; 
+                document.getElementById('login-banner').classList.add('settled'); 
+                document.getElementById('landing-content').style.display = 'block'; 
+                document.getElementById('landing-content').style.opacity = '1'; 
+                document.getElementById('landing-content').style.pointerEvents = 'auto'; 
+                document.getElementById('login-form-wrapper').style.display = 'none'; 
+                const icons = document.getElementById('banner-icons-el'); 
+                const text = document.getElementById('banner-text-el'); 
+                if(icons) icons.style.opacity = '1'; 
+                if(text) text.style.opacity = '1'; 
+                UI.updateStoreStatus(); UI.toast("Berhasil Keluar", "info"); 
+            }
+        };
 
         function generateID(prefix) { return prefix + "-" + Date.now().toString().slice(-5) + Math.floor(Math.random()*100); }
         function viewImage(b64) { Swal.fire({ title: 'Lampiran Foto', imageUrl: b64, imageWidth: 300, padding: '1em' }); }

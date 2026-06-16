@@ -1060,6 +1060,9 @@
         AppLogger.logError(err, "Auth.handleLogout");
     }
 
+    // --- PERBAIKAN: DETEKSI APAKAH YANG KELUAR ADALAH AKUN DEMO ---
+    let wasDemoUser = sessionUser && sessionUser.Username && sessionUser.Username.startsWith('demo_');
+
     // Hapus banner demo secara paksa saat user keluar sistem
     const existingBanner = document.getElementById('demo-floating-banner');
     if (existingBanner) existingBanner.remove();
@@ -1067,6 +1070,23 @@
     sessionUser = null; currentCart = []; editAptId = null; 
     localStorage.removeItem('erp_sessionUser');
 
+    // --- PERBAIKAN: RESET KONEKSI JIKA DARI DEMO ---
+    if (wasDemoUser) {
+        // 1. Matikan mode lokal dan kembalikan koneksi ke Cloud Server
+        isManualLocalMode = false;
+        localStorage.setItem('erp_manual_local_mode', 'false');
+        
+        // 2. Bersihkan total sampah data demo di memori browser
+        localStorage.removeItem('erp_dbUsers');
+        localStorage.removeItem('erp_dbAppointments');
+        localStorage.removeItem('erp_dbFinance');
+
+        // 3. Paksa halaman dimuat ulang (Refresh) agar Firebase otomatis menyambung
+        window.location.reload();
+        return; // Hentikan eksekusi kode di bawah agar refresh berjalan mulus
+    }
+
+    // --- KODE RESET UI UNTUK USER REGULER (Tidak di-refresh) ---
     document.getElementById('app-content').style.display = 'none'; 
     document.getElementById('auth-wrapper').style.display = 'flex'; 
     document.getElementById('btn-hamburger').style.display = 'block'; 

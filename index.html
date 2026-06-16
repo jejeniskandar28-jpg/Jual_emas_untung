@@ -1843,6 +1843,50 @@
                 }); 
             },
             toggleUserStatus: async function(uid) { try { const u=dbUsers.find(x=>x.UID===uid); u.Status = u.Status==="AKTIF"?"NONAKTIF":"AKTIF"; await AppStorage.save(); UI.renderAdminUsersView(); } catch(err){ AppLogger.logError(err, "API.toggleUserStatus"); } },
+
+// --- FITUR BARU: HAPUS AKUN ---
+deleteUser: function(uid) {
+    // Proteksi 1: Cegah Admin menghapus dirinya sendiri saat sedang login
+    if (sessionUser && sessionUser.UID === uid) {
+        return Swal.fire("Akses Ditolak", "Anda tidak dapat menghapus akun Anda sendiri saat sedang login.", "error");
+    }
+
+    Swal.fire({
+        title: 'Hapus Akun Ini?',
+        text: "Profil akun ini akan dihapus permanen. (Riwayat transaksinya di masa lalu akan tetap aman di laporan keuangan).",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
+        confirmButtonText: 'Ya, Hapus!',
+        cancelButtonText: 'Batal'
+    }).then(async (result) => {
+        if (result.isConfirmed) {
+            try {
+                UI.showLoading(true, "Menghapus akun...");
+
+                // 1. Hapus dari Firebase Cloud Firestore jika sedang Online
+                if (isFirebaseActive && !isManualLocalMode) {
+                    await db.collection('users').doc(uid).delete();
+                }
+
+                // 2. Hapus dari memori lokal (Array dbUsers)
+                dbUsers = dbUsers.filter(u => u.UID !== uid);
+
+                // 3. Simpan perubahan ke perangkat
+                await AppStorage.save();
+
+                UI.showLoading(false);
+                UI.toast("Akun berhasil dihapus", "success");
+                UI.renderAdminUsersView(); // Segarkan tabel
+            } catch (err) {
+                UI.showLoading(false);
+                AppLogger.logError(err, "API.deleteUser");
+                UI.toast("Gagal menghapus akun", "error");
+            }
+        }
+    });
+},
             addOpsCost: async function(n, k) { try { const nom = parseInt(n); if(isNaN(nom) || nom <= 0 || !k) return UI.toast("Invalid", "error"); dbFinance.push({ UID: "F"+Date.now(), Tanggal: new Date().toISOString().split('T')[0], Jenis_Kas: "BIAYA_OPS", Kategori: "OPERASIONAL", Keterangan: k, Nominal: nom, Laba_Tercatat: 0 }); await AppStorage.save(); UI.toast("Biaya dicatat!", "success"); UI.renderAdminFinanceView(); } catch(err){ AppLogger.logError(err, "API.addOpsCost"); } },
             
             exportFinancePDF: function() {

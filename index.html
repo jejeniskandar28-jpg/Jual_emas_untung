@@ -1846,9 +1846,18 @@
 
 // --- FITUR BARU: HAPUS AKUN ---
 deleteUser: function(uid) {
-    // Proteksi 1: Cegah Admin menghapus dirinya sendiri saat sedang login
+    // Cari data target user yang akan dihapus
+    const targetUser = dbUsers.find(u => u.UID === uid);
+    if (!targetUser) return;
+
+    // --- PROTEKSI MUTLAK: CEGAH HAPUS SUPER ADMIN ---
+    if (targetUser.Role === 'Admin') {
+        return Swal.fire("Akses Ditolak", "Akun dengan akses Admin / Super Admin bersifat permanen dan tidak boleh dihapus untuk mencegah sistem terkunci (Bug)!", "error");
+    }
+
+    // Proteksi tambahan: Cegah hapus diri sendiri
     if (sessionUser && sessionUser.UID === uid) {
-        return Swal.fire("Akses Ditolak", "Anda tidak dapat menghapus akun Anda sendiri saat sedang login.", "error");
+        return Swal.fire("Akses Ditolak", "Anda tidak dapat menghapus akun Anda sendiri.", "error");
     }
 
     Swal.fire({
@@ -2574,11 +2583,18 @@ deleteUser: function(uid) {
             renderAdminUsersView: function() {
                 const tb = document.getElementById('table-admin-users-list'); tb.innerHTML = '';
                 dbUsers.forEach(u => {
-                    const aptCount = dbAppointments.filter(a => a.Username === u.Username).length;
-                    const bStatus = u.Status === 'AKTIF' ? 'bg-success' : 'bg-danger';
-                    const bRole = u.Role === 'Admin' ? 'badge-admin' : (u.Role === 'Agen' ? 'badge-agen' : 'badge-pelanggan');
-                    tb.innerHTML += `<tr><td><b>${u.Username}</b></td><td>${u.Nama_Lengkap}</td><td>${u.No_HP}</td><td><span class="badge ${bRole}">${u.Role}</span></td><td><span class="badge ${bStatus}" style="cursor:pointer;" onclick="API.toggleUserStatus('${u.UID}')">${u.Status}</span></td><td><div class="btn-group btn-group-sm"><button class="btn btn-outline-info" onclick="API.showUserModal('${u.UID}')" title="Edit Akun"><i class="fa-solid fa-pen"></i></button><button class="btn btn-outline-success" onclick="UI.viewUserReport('${u.Username}')" title="Lihat Laporan"><i class="fa-solid fa-chart-pie"></i> ${aptCount} Trx</button><button class="btn btn-outline-danger" onclick="API.deleteUser('${u.UID}')" title="Hapus Akun"><i class="fa-solid fa-trash"></i></button></div></td></tr>`;
-                });
+    const aptCount = dbAppointments.filter(a => a.Username === u.Username).length;
+    const bStatus = u.Status === 'AKTIF' ? 'bg-success' : 'bg-danger';
+    const bRole = u.Role === 'Admin' ? 'badge-admin' : (u.Role === 'Agen' ? 'badge-agen' : 'badge-pelanggan');
+
+    // --- FITUR BARU: TOMBOL HAPUS DINAMIS ---
+    // Jika akun ini adalah Admin, tombol hapus diganti dengan ikon gembok abu-abu
+    let btnDelete = u.Role === 'Admin' ? 
+        `<button class="btn btn-outline-secondary" disabled title="Akun Permanen Terkunci"><i class="fa-solid fa-lock"></i></button>` : 
+        `<button class="btn btn-outline-danger" onclick="API.deleteUser('${u.UID}')" title="Hapus Akun"><i class="fa-solid fa-trash"></i></button>`;
+
+    tb.innerHTML += `<tr><td><b>${u.Username}</b></td><td>${u.Nama_Lengkap}</td><td>${u.No_HP}</td><td><span class="badge ${bRole}">${u.Role}</span></td><td><span class="badge ${bStatus}" style="cursor:pointer;" onclick="API.toggleUserStatus('${u.UID}')">${u.Status}</span></td><td><div class="btn-group btn-group-sm"><button class="btn btn-outline-info" onclick="API.showUserModal('${u.UID}')" title="Edit Akun"><i class="fa-solid fa-pen"></i></button><button class="btn btn-outline-success" onclick="UI.viewUserReport('${u.Username}')" title="Lihat Laporan"><i class="fa-solid fa-chart-pie"></i> ${aptCount} Trx</button>${btnDelete}</div></td></tr>`;
+});
 
                 setTimeout(() => {
                     if(window.uChartTrend) window.uChartTrend.destroy();

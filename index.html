@@ -1052,31 +1052,35 @@
                 }
             },
             handleLogout: async function() { 
-                try {
-                    if(isFirebaseActive && navigator.onLine) {
-                        await auth.signOut();
-                    }
-                } catch (err) {
-                    AppLogger.logError(err, "Auth.handleLogout");
-                }
+    try {
+        if(isFirebaseActive && navigator.onLine) {
+            await auth.signOut();
+        }
+    } catch (err) {
+        AppLogger.logError(err, "Auth.handleLogout");
+    }
 
-                sessionUser = null; currentCart = []; editAptId = null; 
-                localStorage.removeItem('erp_sessionUser');
+    // Hapus banner demo secara paksa saat user keluar sistem
+    const existingBanner = document.getElementById('demo-floating-banner');
+    if (existingBanner) existingBanner.remove();
 
-                document.getElementById('app-content').style.display = 'none'; 
-                document.getElementById('auth-wrapper').style.display = 'flex'; 
-                document.getElementById('btn-hamburger').style.display = 'block'; 
-                document.getElementById('login-banner').classList.add('settled'); 
-                document.getElementById('landing-content').style.display = 'block'; 
-                document.getElementById('landing-content').style.opacity = '1'; 
-                document.getElementById('landing-content').style.pointerEvents = 'auto'; 
-                document.getElementById('login-form-wrapper').style.display = 'none'; 
-                const icons = document.getElementById('banner-icons-el'); 
-                const text = document.getElementById('banner-text-el'); 
-                if(icons) icons.style.opacity = '1'; 
-                if(text) text.style.opacity = '1'; 
-                UI.updateStoreStatus(); UI.toast("Berhasil Keluar", "info"); 
-            }
+    sessionUser = null; currentCart = []; editAptId = null; 
+    localStorage.removeItem('erp_sessionUser');
+
+    document.getElementById('app-content').style.display = 'none'; 
+    document.getElementById('auth-wrapper').style.display = 'flex'; 
+    document.getElementById('btn-hamburger').style.display = 'block'; 
+    document.getElementById('login-banner').classList.add('settled'); 
+    document.getElementById('landing-content').style.display = 'block'; 
+    document.getElementById('landing-content').style.opacity = '1'; 
+    document.getElementById('landing-content').style.pointerEvents = 'auto'; 
+    document.getElementById('login-form-wrapper').style.display = 'none'; 
+    const icons = document.getElementById('banner-icons-el'); 
+    const text = document.getElementById('banner-text-el'); 
+    if(icons) icons.style.opacity = '1'; 
+    if(text) text.style.opacity = '1'; 
+    UI.updateStoreStatus(); UI.toast("Berhasil Keluar", "info"); 
+}
         };
 
         function generateID(prefix) { return prefix + "-" + Date.now().toString().slice(-5) + Math.floor(Math.random()*100); }
@@ -2024,18 +2028,35 @@
             addToCart: async function() { const typeItem = document.getElementById('item-type-select').value; const qty = parseInt(document.getElementById('item-qty').value) || 1; const typeTrans = document.getElementById('apt-type').value; let b64 = null; const fIn = document.getElementById('item-photo'); if(fIn.files.length > 0) b64 = await compressImage(fIn.files[0]); if(typeItem === 'EMAS' || typeItem === 'SILVER') { const cat = document.getElementById('item-category').value; const kadar = document.getElementById('item-kadar').value; const varian = document.getElementById('item-varian').value; const wPerItem = parseFloat(document.getElementById('item-weight').value) || 0; const wTotal = wPerItem * qty; if(wPerItem <= 0 || !kadar || !varian) return this.toast("Lengkapi rincian barang!", "error"); const tar = dbGoldSettings.find(g=>g.Kadar===kadar && g.Varian===varian && (g.Bahan || 'EMAS') === typeItem); if(!tar) return this.toast("Harga master barang tidak ditemukan", "error"); const pricePerGram = typeTrans === "BELI" ? tar.Harga_Jual : tar.Harga_Beli; const subtotal = Math.round(wTotal * pricePerGram); currentCart.push({ Type: typeItem, Kategori: cat, Kadar: kadar, Varian: varian, Qty: qty, Gram: wTotal, Subtotal: subtotal, Foto: b64 }); } else { const jid = document.getElementById('item-jasa-select').value; const s = dbServices.find(x => x.UID === jid); if(!s) return this.toast("Pilih layanan jasa!", "error"); const price = s.Harga * qty; currentCart.push({ Type: 'JASA', Nama: s.Nama, Qty: qty, Subtotal: price, Foto: b64 }); } this.toast("Masuk ke keranjang", "success"); document.getElementById('item-qty').value = 1; document.getElementById('item-photo').value = ""; this.renderCart(); },
             renderCart: function() { const tb = document.getElementById('table-cart-items'); tb.innerHTML = ""; let tEmas = 0; let tJasa = 0; if(currentCart.length === 0) tb.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-4"><i class="fa-solid fa-basket-shopping fa-2x mb-2 text-secondary"></i><br>Belum ada barang di keranjang.</td></tr>`; else currentCart.forEach((i, idx) => { if(i.Type === 'JASA') { tJasa += i.Subtotal; tb.innerHTML += `<tr><td><span class="badge bg-info text-dark me-1">JASA</span> ${i.Nama} ${i.Foto?`<i class="fa-solid fa-image text-info ms-1" onclick="viewImage('${i.Foto}')" style="cursor:pointer;"></i>`:''}</td><td>-</td><td>${i.Qty}</td><td>-</td><td class="text-danger">-${this.formatRp(i.Subtotal)}</td><td class="text-center"><button class="btn btn-sm btn-danger" onclick="UI.removeFromCart(${idx})"><i class="fa-solid fa-trash"></i></button></td></tr>`; } else { tEmas += i.Subtotal; let badgeBg = i.Type === 'SILVER' ? 'bg-secondary' : 'bg-success'; tb.innerHTML += `<tr><td><span class="badge ${badgeBg}">${i.Type}</span> ${i.Kategori} ${i.Foto?`<i class="fa-solid fa-image text-info ms-1" onclick="viewImage('${i.Foto}')" style="cursor:pointer;"></i>`:''}</td><td>${i.Kadar} - ${i.Varian}</td><td>${i.Qty}</td><td>${i.Gram}g</td><td class="text-success">+${this.formatRp(i.Subtotal)}</td><td class="text-center"><button class="btn btn-sm btn-danger" onclick="UI.removeFromCart(${idx})"><i class="fa-solid fa-trash"></i></button></td></tr>`; } }); document.getElementById('label-total-emas').innerText = this.formatRp(tEmas); document.getElementById('label-total-jasa').innerText = this.formatRp(tJasa); },
             launchMainApp: function() { 
-                document.getElementById('auth-wrapper').style.display = 'none'; 
-                document.getElementById('btn-hamburger').style.display = 'none'; 
-                document.getElementById('app-content').style.display = 'block'; 
-                let roleBadge = sessionUser.Role === 'Admin' ? 'badge-admin' : (sessionUser.Role === 'Agen' ? 'badge-agen' : 'badge-pelanggan');
-                let badgeEl = document.getElementById('user-profile-badge');
-                badgeEl.className = `badge mt-2 text-wrap ${roleBadge}`;
-                badgeEl.innerText = `${sessionUser.Nama_Lengkap} (${sessionUser.Role})`; 
-                document.getElementById('store-status-badge').style.display = 'none'; 
-                document.getElementById('store-closed-board').style.display = 'none'; 
-                this.renderSidebar(); 
-                this.navigateTo(sessionUser.Role === 'Admin' ? 'admin-laporan' : 'dashboard'); 
-            },
+    document.getElementById('auth-wrapper').style.display = 'none'; 
+    document.getElementById('btn-hamburger').style.display = 'none'; 
+    document.getElementById('app-content').style.display = 'block'; 
+    let roleBadge = sessionUser.Role === 'Admin' ? 'badge-admin' : (sessionUser.Role === 'Agen' ? 'badge-agen' : 'badge-pelanggan');
+    let badgeEl = document.getElementById('user-profile-badge');
+    badgeEl.className = `badge mt-2 text-wrap ${roleBadge}`;
+    badgeEl.innerText = `${sessionUser.Nama_Lengkap} (${sessionUser.Role})`; 
+    document.getElementById('store-status-badge').style.display = 'none'; 
+    document.getElementById('store-closed-board').style.display = 'none'; 
+    
+    // --- INDIKATOR FLOATING BANNER DEMO OTOMATIS ---
+    // Jika username mengandung kata 'demo_', munculkan banner peringatan di pojok kanan bawah
+    if (sessionUser.Username.startsWith('demo_')) {
+        if (!document.getElementById('demo-floating-banner')) {
+            document.body.insertAdjacentHTML('beforeend', `
+                <div id="demo-floating-banner" style="position: fixed; bottom: 80px; right: 20px; z-index: 999999; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #000; padding: 12px 24px; border-radius: 50px; font-weight: bold; box-shadow: 0 4px 15px rgba(0,0,0,0.5); border: 2px solid #fff; animation: netPulse 2s infinite; font-size: 0.85rem;">
+                    <i class="fa-solid fa-flask-vial me-2"></i> MODE SIMULASI (LOKAL)
+                </div>
+            `);
+        }
+    } else {
+        // Jika yang masuk adalah user asli (bukan akun demo), hapus banner-nya jika ada
+        const existingBanner = document.getElementById('demo-floating-banner');
+        if (existingBanner) existingBanner.remove();
+    }
+    
+    this.renderSidebar(); 
+    this.navigateTo(sessionUser.Role === 'Admin' ? 'admin-laporan' : 'dashboard'); 
+},
             renderSidebar: function() {
                 const nav = document.getElementById('sidebar-nav');
                 const mobNav = document.getElementById('mobile-navigation');

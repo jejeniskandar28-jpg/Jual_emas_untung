@@ -1076,20 +1076,25 @@ db.collection('gold_settings').onSnapshot(snapshot => {
     localStorage.removeItem('erp_sessionUser');
 
     // --- PERBAIKAN: RESET KONEKSI JIKA DARI DEMO ---
-    if (wasDemoUser) {
-        // 1. Matikan mode lokal dan kembalikan koneksi ke Cloud Server
+if (wasDemoUser) {
+    // BARIS BARU: Cek apakah Admin sebelumnya sudah mengunci ke mode lokal secara manual
+    let isAdminForced = localStorage.getItem('erp_admin_forced_local') === 'true';
+
+    // 1. Logika Baru: Hanya matikan mode lokal jika BUKAN Admin yang mengaturnya
+    if (!isAdminForced) {
         isManualLocalMode = false;
         localStorage.setItem('erp_manual_local_mode', 'false');
-        
-        // 2. Bersihkan total sampah data demo di memori browser
-        localStorage.removeItem('erp_dbUsers');
-        localStorage.removeItem('erp_dbAppointments');
-        localStorage.removeItem('erp_dbFinance');
-
-        // 3. Paksa halaman dimuat ulang (Refresh) agar Firebase otomatis menyambung
-        window.location.reload();
-        return; // Hentikan eksekusi kode di bawah agar refresh berjalan mulus
     }
+    
+    // 2. Bersihkan total sampah data demo di memori browser
+    localStorage.removeItem('erp_dbUsers');
+    localStorage.removeItem('erp_dbAppointments');
+    localStorage.removeItem('erp_dbFinance');
+
+    // 3. Paksa halaman dimuat ulang (Refresh) agar Firebase otomatis menyambung
+    window.location.reload();
+    return; // Hentikan eksekusi kode di bawah agar refresh berjalan mulus
+}
 
     // --- KODE RESET UI UNTUK USER REGULER (Tidak di-refresh) ---
     document.getElementById('app-content').style.display = 'none'; 
@@ -1141,16 +1146,20 @@ db.collection('gold_settings').onSnapshot(snapshot => {
 
         const API = {
             toggleLocalMode: async function(isChecked) {
-                isManualLocalMode = isChecked;
-                await AppStorage.save();
-                DBService.updateNetworkStatus();
-                if(!isChecked) {
-                    UI.toast("Sinkronisasi Cloud Diaktifkan. Memuat ulang...", "info");
-                    setTimeout(() => location.reload(), 1500);
-                } else {
-                    UI.toast("Mode Lokal Aktif. Data tidak dikirim ke Cloud.", "warning");
-                }
-            },
+    isManualLocalMode = isChecked;
+    
+    // BARIS BARU: Simpan status bahwa Admin yang memaksa mode offline secara manual
+    localStorage.setItem('erp_admin_forced_local', isChecked);
+    
+    await AppStorage.save();
+    DBService.updateNetworkStatus();
+    if(!isChecked) {
+        UI.toast("Sinkronisasi Cloud Diaktifkan. Memuat ulang...", "info");
+        setTimeout(() => location.reload(), 1500);
+    } else {
+        UI.toast("Mode Lokal Aktif. Data tidak dikirim ke Cloud.", "warning");
+    }
+},
             saveAppConfig: async function(isToggleOnly = false) {
                 try {
                     appConfig.storeOpen = document.getElementById('cfg-store-status').checked;

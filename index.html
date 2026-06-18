@@ -2872,14 +2872,49 @@ deleteUser: function(uid) {
                 });
             },
             renderAdminUsersView: function() {
-            // 1. Panggil data dari Server Firebase menggunakan logika Paginasi (Bukan dari array lokal dbUsers lagi)
-            API.fetchUsersPaging('FIRST');
+                // 1. Panggil data dari Server Firebase menggunakan logika Paginasi (Bukan dari array lokal dbUsers lagi)
+                API.fetchUsersPaging('FIRST');
 
-            // 2. Render Grafik Statistik
-            setTimeout(() => 
+                // 2. Render Grafik Statistik
+                setTimeout(() => { 
                     if(window.uChartTrend) window.uChartTrend.destroy();
                     if(window.uChartTop) window.uChartTop.destroy();
                     if(window.uChartTypes) window.uChartTypes.destroy();
+                    
+                    const ctxTrend = document.getElementById('chartUserTrend').getContext('2d');
+                    const ctxTop = document.getElementById('chartTopUsers').getContext('2d');
+                    const ctxTypes = document.getElementById('chartItemTypes').getContext('2d');
+
+                    let mCount = 0; let yCount = 0;
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    const currMonthStr = todayStr.substring(0, 7);
+                    const currYearStr = todayStr.substring(0, 4);
+
+                    let userAptCounts = {}; let typeCounts = { EMAS:0, SILVER:0, JASA:0 };
+                    dbAppointments.filter(a => a.Status_Janji === 'SELESAI').forEach(a => {
+                        if(a.Tanggal.startsWith(currMonthStr)) mCount++;
+                        if(a.Tanggal.startsWith(currYearStr)) yCount++;
+                        
+                        if(!userAptCounts[a.Username]) userAptCounts[a.Username] = 0;
+                        userAptCounts[a.Username]++;
+                        
+                        a.Items.forEach(i => {
+                            if(i.Type === 'EMAS') typeCounts.EMAS++;
+                            else if(i.Type === 'SILVER') typeCounts.SILVER++;
+                            else if(i.Type === 'JASA') typeCounts.JASA++;
+                        });
+                    });
+
+                    window.uChartTrend = new Chart(ctxTrend, { type: 'bar', data: { labels: ['Bulan Ini', 'Tahun Ini'], datasets: [{ label: 'Jumlah Transaksi Selesai', data: [mCount, yCount], backgroundColor: ['#0dcaf0', '#3b82f6'] }] }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks:{color:'#cbd5e1'} }, x: { ticks:{color:'#cbd5e1'} } } } });
+
+                    let sortUsers = Object.keys(userAptCounts).map(k => ({user: k, count: userAptCounts[k]})).sort((a,b) => b.count - a.count).slice(0, 10);
+                    let topLabels = sortUsers.map(u => u.user); let topData = sortUsers.map(u => u.count);
+
+                    window.uChartTop = new Chart(ctxTop, { type: 'bar', data: { labels: topLabels, datasets: [{ label: 'Total Trx', data: topData, backgroundColor: '#d4af37' }] }, options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { ticks:{color:'#cbd5e1'} }, y: { ticks:{color:'#cbd5e1'} } } } });
+
+                    window.uChartTypes = new Chart(ctxTypes, { type: 'doughnut', data: { labels: ['Emas', 'Silver', 'Jasa'], datasets: [{ data: [typeCounts.EMAS, typeCounts.SILVER, typeCounts.JASA], backgroundColor: ['#f59e0b', '#94a3b8', '#10b981'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels:{color:'#fff'} } } } });
+                }, 300);
+            },
                     
                     const ctxTrend = document.getElementById('chartUserTrend').getContext('2d');
                     const ctxTop = document.getElementById('chartTopUsers').getContext('2d');

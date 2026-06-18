@@ -1858,46 +1858,7 @@ if (wasDemoUser) {
                                 }
                             }
                         }
-                    },
-
-                    cleanupOldTestimonials: async function() {
-                    try {
-                        const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000; // 30 Hari dalam milidetik
-                        const now = Date.now();
-                        let hasDeleted = false;
-
-                        // Gunakan batch untuk efisiensi query ke Firestore
-                        const batch = (isFirebaseActive && !isManualLocalMode) ? db.batch() : null;
-
-                        dbTestimonials = dbTestimonials.filter(t => {
-                            // Ekstrak timestamp dari UID (Format: TS1680000000000)
-                            const tsMatch = t.UID.match(/TS(\d+)/);
-                            if (tsMatch) {
-                                const ts = parseInt(tsMatch[1]);
-                                // Jika umur testimoni lebih dari 30 hari, hapus
-                                if (now - ts > THIRTY_DAYS_MS) {
-                                    if (batch) {
-                                        batch.delete(db.collection('testimonials').doc(t.UID));
-                                    }
-                                    hasDeleted = true;
-                                    return false; // Jangan masukkan lagi ke array memori
-                                }
-                            }
-                            return true; // Simpan jika masih baru (kurang dari 1 bulan)
-                        });
-
-                        if (hasDeleted) {
-                            if (batch) await batch.commit();
-                            await AppStorage.save();
-                            // Render ulang UI jika ada perubahan
-                            if(sessionUser && sessionUser.Role === 'Admin') UI.renderTestimoniSettings();
-                        }
-                    } catch (err) {
-                        AppLogger.logError(err, "API.cleanupOldTestimonials");
                     }
-                },
-
-                updateGlobalMultiplier: function(bahan) {
 
                     if (adaYangBerubah && sessionUser) {
                         await AppStorage.save();
@@ -2325,60 +2286,7 @@ deleteUser: function(uid) {
             },
             
             updateStoreStatus: function() { const badge = document.getElementById('store-status-badge'); const board = document.getElementById('store-closed-board'); if(appConfig.storeOpen) { badge.style.display = 'flex'; board.style.display = 'none'; } else { badge.style.display = 'none'; board.style.display = 'flex'; document.getElementById('close-reason-text').innerText = appConfig.storeCloseReason || "Sedang istirahat"; document.getElementById('open-time-text').innerText = "Buka kembali: " + (appConfig.storeOpenTime || "Menunggu konfirmasi"); } if(sessionUser) { badge.style.display = 'none'; board.style.display = 'none'; } },
-            updateLandingPage: function() { 
-            document.getElementById('landing-promo-text').innerHTML = appConfig.promoText; 
-            const mapCont = document.getElementById('landing-map-container'); 
-            if(appConfig.mapEmbedUrl) { 
-                let iframeSrc = appConfig.mapEmbedUrl; 
-                if(!iframeSrc.includes('<iframe')) iframeSrc = `<iframe src="${appConfig.mapEmbedUrl}" width="100%" height="100%" style="border:0;" allowfullscreen="" loading="lazy"></iframe>`; 
-                let clickUrl = appConfig.mapClickUrl || appConfig.mapEmbedUrl; 
-                mapCont.innerHTML = `${iframeSrc}<div class="position-absolute w-100 h-100 top-0 start-0 d-flex justify-content-center align-items-center" style="background: rgba(0,0,0,0.25); cursor:pointer; z-index: 10;" onclick="window.open('${clickUrl}', '_blank')"><button class="btn btn-gold rounded-pill shadow-lg px-4 fw-bold"><i class="fa-solid fa-map-location-dot me-2"></i>Buka di Aplikasi Maps</button></div>`; 
-            } 
-
-            const tCont = document.getElementById('landing-testimonials'); 
-            tCont.innerHTML = ''; 
-            const tampilList = dbTestimonials.filter(t => t.Status === 'TAMPIL'); 
-
-            // Tambahkan 'h-100' agar kotak testimoni sama tinggi saat disandingkan
-            const renderCard = (t) => { 
-                let stars = ''; 
-                for(let i=0; i<t.Star; i++) stars += '<i class="fa-solid fa-star text-warning"></i>'; 
-                return `<div class="p-3 bg-dark rounded border border-secondary h-100"><div class="d-flex justify-content-between mb-2"><h6 class="text-white mb-0">${t.Username}</h6><div>${stars}</div></div><p class="small text-muted mb-0 fst-italic">"${t.Text}"</p></div>`; 
-            }; 
-
-            if (tampilList.length <= 4) { 
-                // Format Grid Kiri-Kanan (Berdampingan) jika item sedikit
-                let gridHtml = '<div class="row g-3">';
-                tampilList.forEach(t => { gridHtml += `<div class="col-md-6">${renderCard(t)}</div>`; }); 
-                gridHtml += '</div>';
-                if(tampilList.length === 0) tCont.innerHTML = '<div class="text-muted small text-center">Belum ada testimoni.</div>'; 
-                else tCont.innerHTML = gridHtml;
-            } else { 
-                // Slider dengan format menyamping di dalamnya
-                let carouselHtml = `<div id="testiCarousel" class="carousel slide" data-bs-ride="carousel" data-bs-interval="4000"><div class="carousel-inner pb-4">`; 
-                const chunkSize = 2; // Tampilkan 2 card bersebelahan
-                for (let i = 0; i < tampilList.length; i += chunkSize) { 
-                    const chunk = tampilList.slice(i, i + chunkSize); 
-                    const activeClass = i === 0 ? 'active' : ''; 
-                    carouselHtml += `<div class="carousel-item ${activeClass}"><div class="row g-3">`; 
-                    chunk.forEach(t => { carouselHtml += `<div class="col-md-6">${renderCard(t)}</div>`; }); 
-                    carouselHtml += `</div></div>`; 
-                } 
-
-                // Indikator Titik Carousel di Bawah
-                carouselHtml += `</div>
-                <div class="carousel-indicators" style="bottom: -20px; margin-bottom: 0;">`;
-                for (let i = 0; i < Math.ceil(tampilList.length / chunkSize); i++) {
-                    carouselHtml += `<button type="button" data-bs-target="#testiCarousel" data-bs-slide-to="${i}" class="${i===0?'active':''}" aria-current="${i===0?'true':'false'}"></button>`;
-                }
-                carouselHtml += `</div>
-                <button class="carousel-control-prev" type="button" data-bs-target="#testiCarousel" data-bs-slide="prev" style="width: 5%; justify-content: flex-start; left: -20px;"><span class="carousel-control-prev-icon" aria-hidden="true"></span></button>
-                <button class="carousel-control-next" type="button" data-bs-target="#testiCarousel" data-bs-slide="next" style="width: 5%; justify-content: flex-end; right: -20px;"><span class="carousel-control-next-icon" aria-hidden="true"></span></button></div>`; 
-
-                tCont.innerHTML = carouselHtml; 
-            } 
-            document.getElementById('landing-card-emas-title').innerText = appConfig.allowBuy ? "Jual / Beli Emas" : "Jual Emas"; 
-        },
+            updateLandingPage: function() { document.getElementById('landing-promo-text').innerHTML = appConfig.promoText; const mapCont = document.getElementById('landing-map-container'); if(appConfig.mapEmbedUrl) { let iframeSrc = appConfig.mapEmbedUrl; if(!iframeSrc.includes('<iframe')) iframeSrc = `<iframe src="${appConfig.mapEmbedUrl}" width="100%" height="100%" style="border:0;" allowfullscreen="" loading="lazy"></iframe>`; let clickUrl = appConfig.mapClickUrl || appConfig.mapEmbedUrl; mapCont.innerHTML = `${iframeSrc}<div class="position-absolute w-100 h-100 top-0 start-0 d-flex justify-content-center align-items-center" style="background: rgba(0,0,0,0.25); cursor:pointer; z-index: 10;" onclick="window.open('${clickUrl}', '_blank')"><button class="btn btn-gold rounded-pill shadow-lg px-4 fw-bold"><i class="fa-solid fa-map-location-dot me-2"></i>Buka di Aplikasi Maps</button></div>`; } const tCont = document.getElementById('landing-testimonials'); tCont.innerHTML = ''; const tampilList = dbTestimonials.filter(t => t.Status === 'TAMPIL'); const renderCard = (t) => { let stars = ''; for(let i=0; i<t.Star; i++) stars += '<i class="fa-solid fa-star text-warning"></i>'; return `<div class="p-3 bg-dark rounded border border-secondary w-100 mb-3"><div class="d-flex justify-content-between mb-2"><h6 class="text-white mb-0">${t.Username}</h6><div>${stars}</div></div><p class="small text-muted mb-0 fst-italic">"${t.Text}"</p></div>`; }; if (tampilList.length <= 5) { tampilList.forEach(t => { tCont.innerHTML += renderCard(t); }); if(tampilList.length === 0) tCont.innerHTML = '<div class="text-muted small">Belum ada testimoni.</div>'; } else { let carouselHtml = `<div id="testiCarousel" class="carousel slide" data-bs-ride="carousel" data-bs-interval="3000"><div class="carousel-inner">`; const chunkSize = 2; for (let i = 0; i < tampilList.length; i += chunkSize) { const chunk = tampilList.slice(i, i + chunkSize); const activeClass = i === 0 ? 'active' : ''; carouselHtml += `<div class="carousel-item ${activeClass}"><div class="d-flex flex-column">`; chunk.forEach(t => { carouselHtml += renderCard(t); }); carouselHtml += `</div></div>`; } carouselHtml += `</div><button class="carousel-control-prev" type="button" data-bs-target="#testiCarousel" data-bs-slide="prev" style="width: 5%; justify-content: flex-start; left: -15px;"><span class="carousel-control-prev-icon" aria-hidden="true"></span></button><button class="carousel-control-next" type="button" data-bs-target="#testiCarousel" data-bs-slide="next" style="width: 5%; justify-content: flex-end; right: -15px;"><span class="carousel-control-next-icon" aria-hidden="true"></span></button></div>`; tCont.innerHTML = carouselHtml; } document.getElementById('landing-card-emas-title').innerText = appConfig.allowBuy ? "Jual / Beli Emas" : "Jual Emas"; },
             promptAdminLogin: function() {
                 const offcanvasEl = document.getElementById('landingMenu');
                 const bOff = bootstrap.Offcanvas.getInstance(offcanvasEl);
@@ -3075,7 +2983,6 @@ deleteUser: function(uid) {
 
             setTimeout(() => {
                 API.autoCompleteTransactions();
-                API.cleanupOldTestimonials(); // Eksekusi pembersihan testimoni kadaluwarsa saat awal load
             }, 3000);
 
             setInterval(() => {

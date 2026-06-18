@@ -2287,7 +2287,81 @@ deleteUser: function(uid) {
             
             updateStoreStatus: function() { const badge = document.getElementById('store-status-badge'); const board = document.getElementById('store-closed-board'); if(appConfig.storeOpen) { badge.style.display = 'flex'; board.style.display = 'none'; } else { badge.style.display = 'none'; board.style.display = 'flex'; document.getElementById('close-reason-text').innerText = appConfig.storeCloseReason || "Sedang istirahat"; document.getElementById('open-time-text').innerText = "Buka kembali: " + (appConfig.storeOpenTime || "Menunggu konfirmasi"); } if(sessionUser) { badge.style.display = 'none'; board.style.display = 'none'; } },
             updateLandingPage: function() { document.getElementById('landing-promo-text').innerHTML = appConfig.promoText; const mapCont = document.getElementById('landing-map-container'); if(appConfig.mapEmbedUrl) { let iframeSrc = appConfig.mapEmbedUrl; if(!iframeSrc.includes('<iframe')) iframeSrc = `<iframe src="${appConfig.mapEmbedUrl}" width="100%" height="100%" style="border:0;" allowfullscreen="" loading="lazy"></iframe>`; let clickUrl = appConfig.mapClickUrl || appConfig.mapEmbedUrl; mapCont.innerHTML = `${iframeSrc}<div class="position-absolute w-100 h-100 top-0 start-0 d-flex justify-content-center align-items-center" style="background: rgba(0,0,0,0.25); cursor:pointer; z-index: 10;" onclick="window.open('${clickUrl}', '_blank')"><button class="btn btn-gold rounded-pill shadow-lg px-4 fw-bold"><i class="fa-solid fa-map-location-dot me-2"></i>Buka di Aplikasi Maps</button></div>`; } const tCont = document.getElementById('landing-testimonials'); tCont.innerHTML = ''; const tampilList = dbTestimonials.filter(t => t.Status === 'TAMPIL'); const renderCard = (t) => { let stars = ''; for(let i=0; i<t.Star; i++) stars += '<i class="fa-solid fa-star text-warning"></i>'; return `<div class="p-3 bg-dark rounded border border-secondary w-100 mb-3"><div class="d-flex justify-content-between mb-2"><h6 class="text-white mb-0">${t.Username}</h6><div>${stars}</div></div><p class="small text-muted mb-0 fst-italic">"${t.Text}"</p></div>`; }; if (tampilList.length <= 5) { tampilList.forEach(t => { tCont.innerHTML += renderCard(t); }); if(tampilList.length === 0) tCont.innerHTML = '<div class="text-muted small">Belum ada testimoni.</div>'; } else { let carouselHtml = `<div id="testiCarousel" class="carousel slide" data-bs-ride="carousel" data-bs-interval="3000"><div class="carousel-inner">`; const chunkSize = 2; for (let i = 0; i < tampilList.length; i += chunkSize) { const chunk = tampilList.slice(i, i + chunkSize); const activeClass = i === 0 ? 'active' : ''; carouselHtml += `<div class="carousel-item ${activeClass}"><div class="d-flex flex-column">`; chunk.forEach(t => { carouselHtml += renderCard(t); }); carouselHtml += `</div></div>`; } carouselHtml += `</div><button class="carousel-control-prev" type="button" data-bs-target="#testiCarousel" data-bs-slide="prev" style="width: 5%; justify-content: flex-start; left: -15px;"><span class="carousel-control-prev-icon" aria-hidden="true"></span></button><button class="carousel-control-next" type="button" data-bs-target="#testiCarousel" data-bs-slide="next" style="width: 5%; justify-content: flex-end; right: -15px;"><span class="carousel-control-next-icon" aria-hidden="true"></span></button></div>`; tCont.innerHTML = carouselHtml; } document.getElementById('landing-card-emas-title').innerText = appConfig.allowBuy ? "Jual / Beli Emas" : "Jual Emas"; },
-            promptAdminLogin: function() { const offcanvasEl = document.getElementById('landingMenu'); const bOff = bootstrap.Offcanvas.getInstance(offcanvasEl); if(bOff) bOff.hide(); setTimeout(() => { Swal.fire({ title: 'Akses Admin Khusus', html: `<div class="position-relative mt-3"><input type="password" id="admin-pass-input" class="form-control form-control-custom w-100" placeholder="Masukkan Password Admin" style="padding-right: 40px; color: var(--text-light) !important;"><i class="fa-solid fa-eye position-absolute" id="toggle-admin-pass" style="right: 15px; top: 15px; cursor: pointer; color: var(--gold-primary);" onclick="const inp = document.getElementById('admin-pass-input'); if(inp.type === 'password'){inp.type='text'; this.classList.replace('fa-eye', 'fa-eye-slash');}else{inp.type='password'; this.classList.replace('fa-eye-slash', 'fa-eye');}"></i></div>`, showCancelButton: true, confirmButtonText: 'Login Sekarang', confirmButtonColor: '#dc3545', didOpen: () => { document.getElementById('admin-pass-input').focus(); }, preConfirm: () => { return document.getElementById('admin-pass-input').value; } }).then(res => { if(res.isConfirmed) { const target = dbUsers.find(u => u.Role === 'Admin' && u.Password === res.value); if(target) { sessionUser = target; this.launchMainApp(); } else { Swal.fire('Ditolak', 'Password Admin Salah!', 'error'); } } }); }, 350); },
+            promptAdminLogin: function() {
+                const offcanvasEl = document.getElementById('landingMenu');
+                const bOff = bootstrap.Offcanvas.getInstance(offcanvasEl);
+                if(bOff) bOff.hide();
+
+                setTimeout(() => {
+                    Swal.fire({
+                        title: 'Akses Admin Khusus',
+                        html: `
+                            <div class="position-relative mt-3">
+                                <input type="text" id="admin-user-input" class="form-control form-control-custom w-100 mb-3" placeholder="Masukkan Username Admin" style="color: var(--text-light) !important;">
+                                <div class="position-relative">
+                                    <input type="password" id="admin-pass-input" class="form-control form-control-custom w-100" placeholder="Masukkan Password Admin" style="padding-right: 40px; color: var(--text-light) !important;">
+                                    <i class="fa-solid fa-eye position-absolute" style="right: 15px; top: 15px; cursor: pointer; color: var(--gold-primary);" onclick="const inp = document.getElementById('admin-pass-input'); if(inp.type === 'password'){inp.type='text'; this.classList.replace('fa-eye', 'fa-eye-slash');}else{inp.type='password'; this.classList.replace('fa-eye-slash', 'fa-eye');}"></i>
+                                </div>
+                            </div>
+                        `,
+                        showCancelButton: true,
+                        confirmButtonText: '<i class="fa-solid fa-shield-halved me-1"></i> Verifikasi Otoritas',
+                        confirmButtonColor: '#dc3545',
+                        didOpen: () => { document.getElementById('admin-user-input').focus(); },
+                        preConfirm: () => {
+                            const user = document.getElementById('admin-user-input').value;
+                            const pass = document.getElementById('admin-pass-input').value;
+                            if (!user || !pass) return Swal.showValidationMessage('Username dan Password wajib diisi!');
+                            return { user, pass };
+                        }
+                    }).then(async res => {
+                        if(res.isConfirmed) {
+                            UI.showLoading(true, "Memverifikasi Otoritas Admin...");
+                            const { user, pass } = res.value;
+                            const email = user + "@erp.local";
+
+                            try {
+                                let targetAdmin = null;
+
+                                if (isFirebaseActive && navigator.onLine && !isManualLocalMode) {
+                                    // 1. Lewati batasan array 50, tembak langsung ke Firebase Auth
+                                    const userCredential = await auth.signInWithEmailAndPassword(email, pass);
+                                    const userDoc = await db.collection('users').doc(userCredential.user.uid).get();
+                                    
+                                    if (!userDoc.exists) throw new Error("Profil admin tidak ditemukan di Cloud.");
+                                    targetAdmin = userDoc.data();
+                                } else {
+                                    // 2. Fallback untuk Mode Lokal (Offline)
+                                    targetAdmin = dbUsers.find(u => u.Username === user && u.Password === pass);
+                                    if (!targetAdmin) throw new Error("Kredensial salah atau data tidak ada di memori lokal.");
+                                }
+
+                                // 3. Proteksi Lapis Ganda
+                                if (!targetAdmin || targetAdmin.Role !== 'Admin') {
+                                    if (isFirebaseActive && navigator.onLine) await auth.signOut();
+                                    throw new Error("Akses Ditolak! Akun bukan level Admin.");
+                                }
+                                if (targetAdmin.Status !== "AKTIF") {
+                                    if (isFirebaseActive && navigator.onLine) await auth.signOut();
+                                    throw new Error("Akun Admin sedang dibekukan!");
+                                }
+
+                                // 4. Eksekusi Login Berhasil
+                                sessionUser = targetAdmin;
+                                localStorage.setItem('erp_sessionUser', JSON.stringify(sessionUser));
+
+                                UI.showLoading(false);
+                                UI.toast("Otoritas Diverifikasi", "success");
+                                this.launchMainApp();
+
+                            } catch (err) {
+                                UI.showLoading(false);
+                                Swal.fire('Akses Ditolak', err.message || 'Gagal login. Periksa kembali username/password.', 'error');
+                            }
+                        }
+                    });
+                }, 350);
+            },
             showKonsumenLoginOpts: function() { Swal.fire({ title: 'Akses Akun', html: '<p class="text-muted small">Pilih metode masuk untuk membuat transaksi</p>', icon: 'question', showDenyButton: true, showCancelButton: true, confirmButtonText: '<i class="fa-solid fa-right-to-bracket"></i> Punya Akun (Masuk)', denyButtonText: '<i class="fa-solid fa-user-plus"></i> Belum Punya Akun', cancelButtonText: 'Akses Cepat (Demo)', confirmButtonColor: '#d4af37', denyButtonColor: '#0dcaf0' }).then(res => { if(res.isConfirmed) { this.switchAuth(false); this.showManualLogin(); } else if(res.isDenied) { this.switchAuth(true); this.showManualLogin(); } else if(res.dismiss === Swal.DismissReason.cancel) { Swal.fire({ title: 'Pilih Demo Akses', showCancelButton: true, confirmButtonText: 'Demo Pelanggan', cancelButtonText: 'Demo Agen' }).then(r => { if (r.isConfirmed) Auth.fastLogin('pelanggan'); else if (r.dismiss === Swal.DismissReason.cancel) Auth.fastLogin('agen'); }); } }); },
             switchAuth: function(regMode) { document.getElementById('login-box').classList.toggle('d-none', regMode); document.getElementById('register-box').classList.toggle('d-none', !regMode); },
             showManualLogin: function() { document.getElementById('landing-content').style.display = 'none'; document.getElementById('login-form-wrapper').style.display = 'block'; setTimeout(() => { document.getElementById('login-form-wrapper').style.opacity = '1'; document.getElementById('login-form-wrapper').style.pointerEvents = 'auto'; }, 50); const bOff = bootstrap.Offcanvas.getInstance(document.getElementById('landingMenu')); if(bOff) bOff.hide(); },

@@ -255,9 +255,11 @@
         <div id="mobile-navigation" class="bottom-nav"></div>
         
         <div class="main-panel">
-            <div id="admin-local-warning">
-                <i class="fa-solid fa-triangle-exclamation me-2 fa-fade"></i> PERINGATAN: Sistem saat ini berjalan pada <b>Mode Lokal</b>. Data tidak disinkronisasi ke Cloud!
+            <div id="global-maintenance-banner" style="display: none; position: fixed; top: 0; left: 0; width: 100%; z-index: 99999; background: linear-gradient(90deg, #b91c1c 0%, #ef4444 50%, #b91c1c 100%); color: white; padding: 12px; text-align: center; font-weight: bold; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.5); border-bottom: 2px solid #7f1d1d;">
+                <i class="fa-solid fa-triangle-exclamation me-2 fa-fade"></i> PEMBERITAHUAN: Sistem sedang dalam pemeliharaan (Maintenance) rutin. Fitur transaksi dihentikan sementara.
             </div>
+    
+            <div id="admin-local-warning" style="display: none;"></div>
             
             <div id="view-dashboard" class="app-view d-none">
                 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap">
@@ -445,8 +447,8 @@
                                 
                                 <div class="d-flex justify-content-between align-items-center border-bottom border-secondary pb-2 mb-4" data-bs-toggle="collapse" data-bs-target="#setDbCol" style="cursor: pointer;"><h5 class="text-white mb-0">3. Mode Sinkronisasi Database</h5><i class="fa-solid fa-chevron-up text-muted collapse-indicator"></i></div>
                                 <div class="collapse show" id="setDbCol">
-                                    <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" id="cfg-local-mode" onchange="API.toggleLocalMode(this.checked)"><label class="form-check-label text-danger fw-bold ms-2" for="cfg-local-mode">Aktifkan Mode Penyimpanan Lokal Saja (Bypass Cloud)</label></div>
-                                    <p class="small text-muted mb-0">Jika dicentang, aplikasi akan memutus koneksi Cloud dan hanya menyimpan di perangkat ini (Lokal). Gunakan hanya jika Firebase bermasalah.</p>
+                                    <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" id="cfg-local-mode"><label class="form-check-label text-danger fw-bold ms-2" for="cfg-local-mode">Aktifkan Mode Pemeliharaan Sistem (Global Maintenance)</label></div>
+        <p class="small text-muted mb-0">Jika dicentang, seluruh pelanggan akan melihat banner merah peringatan dan semua jalur pengiriman transaksi ke server akan diblokir.</p>
                                 </div>
                                 <hr class="border-secondary mt-4 mb-4">
 
@@ -653,8 +655,8 @@ const iconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My
 let userPaging = { lastDoc: null, firstDoc: null, page: 1, limit: 10 };
 let userSearchTimeout = null;
 
-        const DEFAULT_CONFIG = {
-            showGraph: true, allowBuy: true, limitTrxEmas: 5, limitTrxJasa: 5, 
+const DEFAULT_CONFIG = {
+        isMaintenance: false, showGraph: true, allowBuy: true, limitTrxEmas: 5, limitTrxJasa: 5, 
             timeSlots: ["09:00 - 10:30 WIB", "10:30 - 12:00 WIB", "13:00 - 14:30 WIB", "15:30 - 17:00 WIB"],
             notaName: "JUAL EMAS UNTUNG", notaAddress: "Ds.Kudukeras,Kec.Babakan, Cirebon", notaPhone: "0852-9550-2517", notaStyle: "SANGAT_BESAR",
             storeTagline: "Jual Emas Mudah dan Menguntungkan", storeOpen: true, storeCloseReason: "Libur Hari Raya", storeOpenTime: "Besok Jam 09:00 WIB",
@@ -731,9 +733,17 @@ let userSearchTimeout = null;
             setupRealtimeListeners: function() {
                 try {
                     // Sync Config
-                    db.collection('erp_data').doc('appConfig').onSnapshot(doc => {
-                        if (doc.exists) { appConfig = doc.data(); UI.updateStoreStatus(); UI.updateRunningText(); }
-                    });
+                db.collection('erp_data').doc('appConfig').onSnapshot(doc => {
+                    if (doc.exists) { 
+                        appConfig = doc.data(); 
+                        UI.updateStoreStatus(); 
+                        UI.updateRunningText(); 
+
+                        // Tampilkan atau Sembunyikan Banner Global secara Real-time
+                        const banner = document.getElementById('global-maintenance-banner');
+                        if(banner) banner.style.display = appConfig.isMaintenance ? 'block' : 'none';
+                    }
+                });
 
                     // Sync Appointments (Multiuser fix)
                     db.collection('appointments').onSnapshot(snapshot => {
@@ -1256,10 +1266,11 @@ if (wasDemoUser) {
                 document.getElementById('btn-user-next').disabled = (snapshot.docs.length < userPaging.limit);
             } catch (err) { UI.showLoading(false); AppLogger.logError(err, "Paging Error"); }
         },
-            saveAppConfig: async function(isToggleOnly = false) {
-                try {
-                    appConfig.storeOpen = document.getElementById('cfg-store-status').checked;
-                    if(!isToggleOnly) {
+        saveAppConfig: async function(isToggleOnly = false) {
+            try {
+                appConfig.storeOpen = document.getElementById('cfg-store-status').checked;
+                appConfig.isMaintenance = document.getElementById('cfg-local-mode').checked; // Simpan status maintenance
+                if(!isToggleOnly) {
                         appConfig.showGraph = document.getElementById('cfg-show-graph').checked; 
                         appConfig.allowBuy = document.getElementById('cfg-allow-buy').checked; 
                         appConfig.limitTrxEmas = parseInt(document.getElementById('cfg-limit-emas').value) || 5; 
@@ -1429,9 +1440,19 @@ if (wasDemoUser) {
             getCurrentBalance: function() { let bal = 0; dbFinance.forEach(f => { if(f.Jenis_Kas === "PENDAPATAN") bal += f.Nominal; else bal -= f.Nominal; }); return bal; },
             
             startCheckoutWizard: async function() {
-                try {
-                    if(currentCart.length === 0) return Swal.fire("Kosong", "Tambahkan barang/jasa ke keranjang terlebih dahulu.", "warning");
-                    const dt = document.getElementById('apt-date').value; 
+            try {
+                // 1. BLOKIR JIKA ADMIN MENYALAKAN MODE MAINTENANCE
+                if(appConfig.isMaintenance) {
+                    return Swal.fire("Mohon Maaf", "Sistem saat ini sedang dalam pemeliharaan rutin/perbaikan. Transaksi tidak dapat diproses saat ini. Mohon tunggu beberapa saat.", "warning");
+                }
+
+                // 2. BLOKIR JIKA INTERNET KLIEN MATI (OFFLINE MURNI)
+                if(!navigator.onLine) {
+                    return Swal.fire("Koneksi Terputus", "Sistem sedang Offline dan data tidak dapat tersimpan ke server. Harap pastikan koneksi internet Anda aktif kembali sebelum melanjutkan.", "error");
+                }
+
+                if(currentCart.length === 0) return Swal.fire("Kosong", "Tambahkan barang/jasa ke keranjang terlebih dahulu.", "warning");
+                const dt = document.getElementById('apt-date').value; 
                     const now = new Date();
                     const todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
                     if(!dt || dt < todayStr) {
@@ -2801,7 +2822,7 @@ deleteUser: function(uid) {
                 document.getElementById('cfg-qris-url').value = appConfig.qrisUrl || '';
                 document.getElementById('cfg-running-text').value = appConfig.runningTextCustom || '';
                 document.getElementById('cfg-running-speed').value = appConfig.runningTextSpeed || 20;
-                document.getElementById('cfg-local-mode').checked = isManualLocalMode;
+                document.getElementById('cfg-local-mode').checked = appConfig.isMaintenance || false; // Ambil dari Cloud
                 
                 this.renderTimeSlotsSetting();
                 this.renderSocialSettings();
@@ -2820,15 +2841,91 @@ deleteUser: function(uid) {
                     list.innerHTML += `<div class="social-item-row bg-dark p-2 rounded mb-2 border border-secondary"><div class="row g-2 align-items-center"><div class="col-3"><select class="form-control form-control-custom form-control-sm soc-plat"><option value="whatsapp" ${s.platform==='whatsapp'?'selected':''}>WA</option><option value="instagram" ${s.platform==='instagram'?'selected':''}>IG</option><option value="facebook" ${s.platform==='facebook'?'selected':''}>FB</option><option value="other" ${s.platform==='other'?'selected':''}>Lainnya</option></select></div><div class="col-4"><input type="text" class="form-control form-control-custom form-control-sm soc-label" value="${s.label}" placeholder="Label"></div><div class="col-4"><input type="text" class="form-control form-control-custom form-control-sm soc-url" value="${s.url}" placeholder="URL/No"></div><div class="col-1 text-end"><button class="btn btn-sm btn-danger" onclick="API.removeSocial(${idx})"><i class="fa-solid fa-xmark"></i></button></div></div></div>`;
                 });
             },
-            renderTestimoniSettings: function() {
-                const tb = document.getElementById('table-admin-testimoni'); tb.innerHTML = '';
-                if(dbTestimonials.length === 0) tb.innerHTML = '<tr><td colspan="4" class="text-center text-muted">Belum ada testimoni</td></tr>';
-                else dbTestimonials.forEach(t => {
-                    let stars = ''; for(let i=0; i<t.Star; i++) stars += '<i class="fa-solid fa-star text-warning" style="font-size:0.7rem;"></i>';
-                    let bgStatus = t.Status === 'TAMPIL' ? 'bg-success' : 'bg-secondary';
-                    tb.innerHTML += `<tr><td><b>${t.Username}</b></td><td><div class="mb-1">${stars}</div><small class="text-muted text-wrap" style="max-width: 150px; display:block;">${t.Text}</small></td><td><span class="badge ${bgStatus} cursor-pointer" onclick="API.toggleTestimoni('${t.UID}')">${t.Status}</span></td><td><button class="btn btn-sm btn-outline-danger" onclick="API.deleteTestimoni('${t.UID}')"><i class="fa-solid fa-trash"></i></button></td></tr>`;
-                });
-            },
+            // Tambahkan fungsi mass delete di API object:
+            deleteTestimoniMassal: async function() { 
+    // Mengambil semua checkbox yang sedang dicentang di dalam tabel
+    const checks = document.querySelectorAll('.testi-check:checked'); 
+    if(checks.length === 0) return Swal.fire("Pilih Data", "Pilih minimal satu ulasan yang ingin dihapus dengan mencentang kotaknya.", "warning"); 
+
+    const uids = Array.from(checks).map(c => c.value); 
+    const conf = await Swal.fire({
+        title: 'Hapus Massal?', 
+        text: `Anda yakin ingin menghapus ${uids.length} ulasan yang dipilih secara permanen?`, 
+        icon: 'warning', 
+        showCancelButton: true,
+        confirmButtonColor: '#d33'
+    }); 
+
+    if(conf.isConfirmed) { 
+        try {
+            UI.showLoading(true, "Menghapus ulasan..."); 
+
+            // 1. Eksekusi Hapus di Cloud Firebase (Mode Batch)
+            if(isFirebaseActive && !isManualLocalMode) { 
+                const batch = db.batch(); 
+                uids.forEach(uid => {
+                    const docRef = db.collection('testimonials').doc(uid);
+                    batch.delete(docRef);
+                }); 
+                await batch.commit(); 
+            } 
+
+            // 2. Eksekusi Hapus di Local Array
+            dbTestimonials = dbTestimonials.filter(t => !uids.includes(t.UID)); 
+            await AppStorage.save(); 
+
+            UI.showLoading(false); 
+            UI.renderTestimoniSettings(); 
+            UI.updateLandingPage(); 
+            UI.toast(`${uids.length} Ulasan berhasil dihapus`, "success"); 
+        } catch(err) {
+            UI.showLoading(false);
+            AppLogger.logError(err, "API.deleteTestimoniMassal");
+            Swal.fire("Gagal", "Terjadi kesalahan saat menghapus data massal.", "error");
+        }
+    } 
+},
+
+// Ganti renderTestimoniSettings di object UI:
+renderTestimoniSettings: function() {
+    const container = document.getElementById('setTestiCol');
+
+    // Struktur HTML Baru dengan Pills (Slider) & Mass Delete
+    let htmlContent = `
+        <ul class="nav nav-pills mb-3" id="pills-testi-tab" role="tablist">
+            <li class="nav-item" role="presentation"><button class="nav-link active btn-sm" data-bs-toggle="pill" data-bs-target="#testi-aktif" type="button">Tampil (Aktif)</button></li>
+            <li class="nav-item" role="presentation"><button class="nav-link btn-sm ms-2" data-bs-toggle="pill" data-bs-target="#testi-arsip" type="button">Arsip (Sembunyi)</button></li>
+        </ul>
+        <div class="mb-2 text-end"><button class="btn btn-sm btn-outline-danger" onclick="API.deleteTestimoniMassal()"><i class="fa-solid fa-trash-can"></i> Hapus yang Dicentang</button></div>
+        <div class="tab-content border border-secondary rounded" style="background: rgba(0,0,0,0.1); max-height: 300px; overflow-y:auto;">
+    `;
+
+    const aktifList = dbTestimonials.filter(t => t.Status === 'TAMPIL');
+    const arsipList = dbTestimonials.filter(t => t.Status === 'SEMBUNYI');
+
+    const buildTable = (list, id) => {
+        let tbHtml = `<div class="tab-pane fade ${id === 'testi-aktif' ? 'show active' : ''}" id="${id}"><table class="table table-dark table-hover small mb-0"><thead style="position: sticky; top: 0; background-color: var(--bg-card); z-index: 1;"><tr><th><i class="fa-solid fa-check-double"></i></th><th>Tgl / User</th><th>Ulasan</th><th>Status</th></tr></thead><tbody>`;
+        if(list.length === 0) tbHtml += `<tr><td colspan="4" class="text-center text-muted py-3">Tidak ada data di tab ini.</td></tr>`;
+        list.forEach(t => {
+            let stars = ''; for(let i=0; i<t.Star; i++) stars += '<i class="fa-solid fa-star text-warning" style="font-size:0.7rem;"></i>';
+            let tgl = t.Timestamp ? new Date(t.Timestamp).toLocaleDateString('id-ID') : '-';
+            tbHtml += `<tr>
+                <td><input type="checkbox" class="form-check-input testi-check" value="${t.UID}"></td>
+                <td><b>${t.Username}</b><br><small class="text-muted">${tgl}</small></td>
+                <td><div class="mb-1">${stars}</div><small class="text-muted text-wrap" style="max-width: 150px; display:block;">${t.Text}</small></td>
+                <td><span class="badge ${t.Status==='TAMPIL'?'bg-success':'bg-secondary'} cursor-pointer" onclick="API.toggleTestimoni('${t.UID}')">${t.Status}</span></td>
+            </tr>`;
+        });
+        tbHtml += `</tbody></table></div>`;
+        return tbHtml;
+    };
+
+    htmlContent += buildTable(aktifList, 'testi-aktif');
+    htmlContent += buildTable(arsipList, 'testi-arsip');
+    htmlContent += `</div>`;
+
+    container.innerHTML = htmlContent;
+},
             renderTimeSlotsSetting: function() {
                 const list = document.getElementById('list-timeslots'); list.innerHTML = '';
                 if(!appConfig.timeSlots || appConfig.timeSlots.length === 0) list.innerHTML = '<small class="text-muted">Belum ada sesi waktu.</small>';
@@ -2906,16 +3003,40 @@ deleteUser: function(uid) {
                     showCancelButton: true, confirmButtonText: 'Kirim Testimoni',
                     didOpen: () => { window.currStar = 5; UI.setStar(5); },
                     preConfirm: () => { const text = document.getElementById('testi-text').value; if(!text) return Swal.showValidationMessage('Ulasan tidak boleh kosong!'); return { text, star: window.currStar }; }
-                }).then(async res => {
-                    if(res.isConfirmed) {
-                        try {
-                            dbTestimonials.push({ UID: "TS"+Date.now(), Username: sessionUser.Username, Text: res.value.text, Star: res.value.star, Status: 'TAMPIL' });
-                            await AppStorage.save();
-                            UI.toast('Terima Kasih atas ulasannya!', 'success');
-                            UI.updateLandingPage();
-                        } catch(err) { AppLogger.logError(err, "UI.showAddTestimoni"); }
-                    }
-                });
+}).then(async res => {
+    if(res.isConfirmed) {
+        try {
+            // 1. Filter Kata Kotor Sederhana (Client-Side)
+            const dirtyWords = ["bodoh", "jelek", "penipu", "parah", "sampah", "anjing"]; // Tambahkan sesuai kebutuhan
+            let sanitizedText = res.value.text;
+            dirtyWords.forEach(word => {
+                const regex = new RegExp(`\\b${word}\\b`, "gi");
+                sanitizedText = sanitizedText.replace(regex, "***");
+            });
+
+            // 2. Sentimen Analisis Sederhana: Auto-Hide < 3 Bintang
+            const autoStatus = res.value.star < 3 ? 'SEMBUNYI' : 'TAMPIL';
+
+            // 3. Tambahkan Timestamp untuk acuan pembersihan 30 hari
+            dbTestimonials.push({ 
+                UID: "TS"+Date.now(), 
+                Username: sessionUser.Username, 
+                Text: sanitizedText, 
+                Star: res.value.star, 
+                Status: autoStatus,
+                Timestamp: new Date().toISOString()
+            });
+
+            await AppStorage.save();
+            if(autoStatus === 'SEMBUNYI') {
+                UI.toast('Ulasan disimpan. Menunggu moderasi Admin.', 'info');
+            } else {
+                UI.toast('Terima Kasih atas ulasannya!', 'success');
+            }
+            UI.updateLandingPage();
+        } catch(err) { AppLogger.logError(err, "UI.showAddTestimoni"); }
+    }
+});
             },
             setStar: function(s) {
                 window.currStar = s;

@@ -2643,16 +2643,27 @@ deleteUser: async function(uid) {
                                 let targetAdmin = null;
 
                                 if (isFirebaseActive && navigator.onLine && !isManualLocalMode) {
-                                    // 1. Lewati batasan array 50, tembak langsung ke Firebase Auth
+                                    // 1. Jalur Utama: Tembak langsung ke Firebase Auth
                                     const userCredential = await auth.signInWithEmailAndPassword(email, pass);
                                     const userDoc = await db.collection('users').doc(userCredential.user.uid).get();
                                     
                                     if (!userDoc.exists) throw new Error("Profil admin tidak ditemukan di Cloud.");
                                     targetAdmin = userDoc.data();
+                                    
+                                    // PERBAIKAN: Simpan Kredensial khusus untuk Login Offline di masa depan
+                                    localStorage.setItem('erp_offline_admin', JSON.stringify({ u: user, p: pass, data: targetAdmin }));
                                 } else {
                                     // 2. Fallback untuk Mode Lokal (Offline)
-                                    targetAdmin = dbUsers.find(u => u.Username === user && u.Password === pass);
-                                    if (!targetAdmin) throw new Error("Kredensial salah atau data tidak ada di memori lokal.");
+                                    const offlineCache = JSON.parse(localStorage.getItem('erp_offline_admin'));
+                                    
+                                    // PERBAIKAN: Cek cache offline terlebih dahulu
+                                    if (offlineCache && offlineCache.u === user && offlineCache.p === pass) {
+                                        targetAdmin = offlineCache.data;
+                                    } else {
+                                        // Cek memori darurat dbUsers
+                                        targetAdmin = dbUsers.find(u => u.Username === user && u.Password === pass);
+                                        if (!targetAdmin) throw new Error("Kredensial salah atau data Admin tidak ada di memori perangkat.");
+                                    }
                                 }
 
                                 // 3. Proteksi Lapis Ganda
@@ -2675,7 +2686,28 @@ deleteUser: async function(uid) {
 
                             } catch (err) {
                                 UI.showLoading(false);
-                                Swal.fire('Akses Ditolak', err.message || 'Gagal login. Periksa kembali username/password.', 'error');
+                                
+                                // PERBAIKAN UTAMA: JALAN KELUAR (ESCAPE HATCH) DEADLOCK MODE LOKAL
+                                if (isManualLocalMode) {
+                                    Swal.fire({
+                                        title: 'Akses Offline Gagal',
+                                        text: 'Gagal memverifikasi Admin karena Mode Lokal aktif. Apakah Anda ingin memaksa sistem terhubung kembali ke Cloud (Online)?',
+                                        icon: 'error',
+                                        showCancelButton: true,
+                                        confirmButtonText: '<i class="fa-solid fa-cloud"></i> Ya, Paksa Online',
+                                        confirmButtonColor: '#10b981',
+                                        cancelButtonText: 'Batal'
+                                    }).then((r) => {
+                                        if (r.isConfirmed) {
+                                            isManualLocalMode = false;
+                                            localStorage.setItem('erp_manual_local_mode', 'false');
+                                            localStorage.setItem('erp_admin_forced_local', 'false');
+                                            location.reload(); // Refresh otomatis agar nyambung ke Firebase
+                                        }
+                                    });
+                                } else {
+                                    Swal.fire('Akses Ditolak', err.message || 'Gagal login. Periksa kembali username/password.', 'error');
+                                }
                             }
                         }
                     });

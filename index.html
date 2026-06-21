@@ -1357,7 +1357,77 @@ if (wasDemoUser) {
             addSocial: async function() { appConfig.socials.push({ id: "s"+Date.now(), platform: "other", label: "Media Baru", url: "" }); await AppStorage.save(); UI.renderSocialSettings(); },
             removeSocial: async function(idx) { appConfig.socials.splice(idx, 1); await AppStorage.save(); UI.renderSocialSettings(); },
             toggleTestimoni: async function(uid) { try { const t = dbTestimonials.find(x => x.UID === uid); if(t) { t.Status = t.Status === 'TAMPIL' ? 'SEMBUNYI' : 'TAMPIL'; await AppStorage.save(); UI.renderTestimoniSettings(); UI.updateLandingPage(); UI.toast("Status testimoni berhasil diubah", "success"); } } catch (err) { AppLogger.logError(err, "API.toggleTestimoni"); } },
-            deleteTestimoni: function(uid) { Swal.fire({ title: 'Hapus Testimoni?', icon: 'warning', showCancelButton: true, confirmButtonText: 'Hapus' }).then(async (r) => { if (r.isConfirmed) { dbTestimonials = dbTestimonials.filter(t => t.UID !== uid); await AppStorage.save(); UI.renderTestimoniSettings(); UI.updateLandingPage(); UI.toast("Testimoni dihapus", "success"); } }); },
+            deleteTestimoni: function(uid) {
+        Swal.fire({
+            title: 'Hapus Testimoni?',
+            text: 'Ulasan ini akan dihapus secara permanen dari sistem.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Ya, Hapus!'
+        }).then(async (r) => {
+            if (r.isConfirmed) {
+                try {
+                    // 1. Hapus data dari array global
+                    dbTestimonials = dbTestimonials.filter(t => t.UID !== uid);
+                    
+                    // 2. Simpan ke lokal storage / database eksternal
+                    await AppStorage.save();
+                    
+                    // ========================================================
+                    // SOLUSI UTAMA (SINKRONISASI TAB PILLS & LANDING):
+                    // Render kembali komponen Pengaturan Testimoni Admin agar tab Pills terupdate,
+                    // dan updateLandingPage() agar testimoni di beranda depan ikut hilang.
+                    // ========================================================
+                    UI.renderTestimoniSettings();
+                    UI.updateLandingPage();
+                    
+                    UI.toast("Testimoni berhasil dihapus", "success");
+                } catch (err) {
+                    AppLogger.logError(err, "API.deleteTestimoni");
+                    UI.toast("Gagal menghapus testimoni", "error");
+                }
+            }
+        });
+    },
+    // Tambahkan fungsi ini tepat di bawah deleteTestimoni agar tombol "Hapus yang Dicentang" berfungsi!
+    deleteTestimoniMassal: function() {
+        // Mengambil semua checkbox input di dalam container testimoni yang berstatus dicentang (checked)
+        const checkedBoxes = document.querySelectorAll('#setTestiCol input[type="checkbox"]:checked');
+        if (checkedBoxes.length === 0) {
+            return UI.toast("Pilih minimal satu testimoni untuk dihapus!", "warning");
+        }
+
+        Swal.fire({
+            title: `Hapus ${checkedBoxes.length} Testimoni?`,
+            text: "Semua ulasan yang Anda centang akan dihapus permanen.",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            confirmButtonText: 'Ya, Hapus Semua!'
+        }).then(async (r) => {
+            if (r.isConfirmed) {
+                try {
+                    // Kumpulkan semua UID yang dicentang
+                    const uidsToDelete = Array.from(checkedBoxes).map(cb => cb.value);
+                    
+                    // Saring dan buang UID yang ada di daftar hapus
+                    dbTestimonials = dbTestimonials.filter(t => !uidsToDelete.includes(t.UID));
+                    
+                    // Simpan dan render ulang seluruh view terkait
+                    await AppStorage.save();
+                    UI.renderTestimoniSettings();
+                    UI.updateLandingPage();
+                    
+                    UI.toast("Testimoni terpilih berhasil dihapus", "success");
+                } catch (err) {
+                    AppLogger.logError(err, "API.deleteTestimoniMassal");
+                    UI.toast("Gagal menghapus testimoni massal", "error");
+                }
+            }
+        });
+    },
             printNota: function(uid) { 
                 try {
                     const apt = dbAppointments.find(a => a.UID === uid); if(!apt) return; 
@@ -2030,57 +2100,62 @@ deleteTemplate: async function() {
             toggleUserStatus: async function(uid) { try { const u=dbUsers.find(x=>x.UID===uid); u.Status = u.Status==="AKTIF"?"NONAKTIF":"AKTIF"; await AppStorage.save(); UI.renderAdminUsersView(); } catch(err){ AppLogger.logError(err, "API.toggleUserStatus"); } },
 
 // --- FITUR BARU: HAPUS AKUN ---
-deleteUser: function(uid) {
-    // Cari data target user yang akan dihapus
-    const targetUser = dbUsers.find(u => u.UID === uid);
-    if (!targetUser) return;
-
-    // --- PROTEKSI MUTLAK: CEGAH HAPUS SUPER ADMIN ---
-    if (targetUser.Role === 'Admin') {
-        return Swal.fire("Akses Ditolak", "Akun dengan akses Admin / Super Admin bersifat permanen dan tidak boleh dihapus untuk mencegah sistem terkunci (Bug)!", "error");
-    }
-
-    // Proteksi tambahan: Cegah hapus diri sendiri
-    if (sessionUser && sessionUser.UID === uid) {
-        return Swal.fire("Akses Ditolak", "Anda tidak dapat menghapus akun Anda sendiri.", "error");
-    }
-
-    Swal.fire({
-        title: 'Hapus Akun Ini?',
-        text: "Profil akun ini akan dihapus permanen. (Riwayat transaksinya di masa lalu akan tetap aman di laporan keuangan).",
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonColor: '#d33',
-        cancelButtonColor: '#3085d6',
-        confirmButtonText: 'Ya, Hapus!',
-        cancelButtonText: 'Batal'
-    }).then(async (result) => {
-        if (result.isConfirmed) {
-            try {
-                UI.showLoading(true, "Menghapus akun...");
-
-                // 1. Hapus dari Firebase Cloud Firestore jika sedang Online
-                if (isFirebaseActive && !isManualLocalMode) {
-                    await db.collection('users').doc(uid).delete();
-                }
-
-                // 2. Hapus dari memori lokal (Array dbUsers)
-                dbUsers = dbUsers.filter(u => u.UID !== uid);
-
-                // 3. Simpan perubahan ke perangkat
-                await AppStorage.save();
-
-                UI.showLoading(false);
-                UI.toast("Akun berhasil dihapus", "success");
-                UI.renderAdminUsersView(); // Segarkan tabel
-            } catch (err) {
-                UI.showLoading(false);
-                AppLogger.logError(err, "API.deleteUser");
-                UI.toast("Gagal menghapus akun", "error");
-            }
+deleteUser: async function(uid) {
+        // Proteksi tambahan: Ambil data user dari snapshot/cache lokal jika ada
+        // (Sesuaikan atau biarkan proteksi default Anda)
+        
+        // Proteksi tambahan: Cegah hapus diri sendiri
+        if (sessionUser && sessionUser.UID === uid) {
+            return Swal.fire("Akses Ditolak", "Anda tidak dapat menghapus akun Anda sendiri.", "error");
         }
-    });
-},
+
+        Swal.fire({
+            title: 'Hapus Akun Ini?',
+            text: "Profil akun ini akan dihapus permanen dari Cloud.",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Ya, Hapus!',
+            cancelButtonText: 'Batal'
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                try {
+                    UI.showLoading(true, "Menghapus akun...");
+                    
+                    // Eksekusi penghapusan di Firebase Cloud
+                    if (isFirebaseActive && navigator.onLine && !isManualLocalMode) {
+                        await db.collection('users').doc(uid).delete();
+                    }
+
+                    // Hapus dari array lokal filter fallback
+                    if (typeof dbUsers !== 'undefined') {
+                        dbUsers = dbUsers.filter(u => u.UID !== uid);
+                    }
+                    
+                    await AppStorage.save();
+                    UI.showLoading(false);
+                    Swal.fire('Terhapus!', 'Akun telah berhasil dihapus.', 'success');
+
+                    // ========================================================
+                    // SOLUSI UTAMA (SINKRONISASI PAGINASI):
+                    // Me-reset halaman paginasi kembali ke halaman PERTAMA ('FIRST')
+                    // agar objek 'lastDoc' dan 'firstDoc' ter-refresh bersih dari Cloud.
+                    // ========================================================
+                    if (typeof UI.searchUsers === 'function') {
+                        UI.searchUsers('FIRST'); 
+                    } else if (typeof UI.renderAdminUsersView === 'function') {
+                        UI.renderAdminUsersView();
+                    }
+
+                } catch (err) {
+                    UI.showLoading(false);
+                    AppLogger.logError(err, "API.deleteUser");
+                    Swal.fire('Gagal', 'Gagal menghapus akun: ' + err.message, 'error');
+                }
+            }
+        });
+    },
             addOpsCost: async function(n, k) { try { const nom = parseInt(n); if(isNaN(nom) || nom <= 0 || !k) return UI.toast("Invalid", "error"); dbFinance.push({ UID: "F"+Date.now(), Tanggal: new Date().toISOString().split('T')[0], Jenis_Kas: "BIAYA_OPS", Kategori: "OPERASIONAL", Keterangan: k, Nominal: nom, Laba_Tercatat: 0 }); await AppStorage.save(); UI.toast("Biaya dicatat!", "success"); UI.renderAdminFinanceView(); } catch(err){ AppLogger.logError(err, "API.addOpsCost"); } },
             
             exportFinancePDF: function() {
@@ -2903,22 +2978,30 @@ renderTestimoniSettings: function() {
     const aktifList = dbTestimonials.filter(t => t.Status === 'TAMPIL');
     const arsipList = dbTestimonials.filter(t => t.Status === 'SEMBUNYI');
 
-    const buildTable = (list, id) => {
-        let tbHtml = `<div class="tab-pane fade ${id === 'testi-aktif' ? 'show active' : ''}" id="${id}"><table class="table table-dark table-hover small mb-0"><thead style="position: sticky; top: 0; background-color: var(--bg-card); z-index: 1;"><tr><th><i class="fa-solid fa-check-double"></i></th><th>Tgl / User</th><th>Ulasan</th><th>Status</th></tr></thead><tbody>`;
-        if(list.length === 0) tbHtml += `<tr><td colspan="4" class="text-center text-muted py-3">Tidak ada data di tab ini.</td></tr>`;
-        list.forEach(t => {
-            let stars = ''; for(let i=0; i<t.Star; i++) stars += '<i class="fa-solid fa-star text-warning" style="font-size:0.7rem;"></i>';
-            let tgl = t.Timestamp ? new Date(t.Timestamp).toLocaleDateString('id-ID') : '-';
-            tbHtml += `<tr>
-                <td><input type="checkbox" class="form-check-input testi-check" value="${t.UID}"></td>
-                <td><b>${t.Username}</b><br><small class="text-muted">${tgl}</small></td>
-                <td><div class="mb-1">${stars}</div><small class="text-muted text-wrap" style="max-width: 150px; display:block;">${t.Text}</small></td>
-                <td><span class="badge ${t.Status==='TAMPIL'?'bg-success':'bg-secondary'} cursor-pointer" onclick="API.toggleTestimoni('${t.UID}')">${t.Status}</span></td>
-            </tr>`;
-        });
-        tbHtml += `</tbody></table></div>`;
-        return tbHtml;
-    };
+    //  KODE BARU (SUDAH DITAMBAHKAN KOLOM AKSI & TOMBOL HAPUS INDIVIDUAL)
+const buildTable = (list, id) => {
+    // 1. Ditambahkan kolom head "Aksi" paling kanan pada tabel <thead>
+    let tbHtml = `<div class="tab-pane fade ${id === 'testi-aktif' ? 'show active' : ''}" id="${id}"><table class="table table-dark table-hover small mb-0"><thead style="position: sticky; top: 0; background-color: var(--bg-card); z-index: 1;"><tr><th><i class="fa-solid fa-check-double"></i></th><th>Tgl / User</th><th>Ulasan</th><th>Status</th><th>Aksi</th></tr></thead><tbody>`;
+    
+    // 2. Jika data kosong, colspan dinaikkan menjadi 5 kolom agar rapi
+    if(list.length === 0) tbHtml += `<tr><td colspan="5" class="text-center text-muted py-3">Tidak ada testimoni</td></tr>`;
+    else list.forEach(t => {
+        // 3. Menambahkan tombol tempat aksi hapus individual API.deleteTestimoni('${t.UID}') di kolom paling ujung <td>
+        tbHtml += `<tr>
+            <td><input type="checkbox" class="form-check-input testi-check" value="${t.UID}"></td>
+            <td><small>${t.Tanggal||''}</small><br><b>${t.Username||'Anonim'}</b></td>
+            <td>${t.Text||''}</td>
+            <td><button class="btn btn-sm ${t.Status==='TAMPIL'?'btn-outline-warning':'btn-outline-success'}" onclick="API.toggleTestimoniStatus('${t.UID}')">${t.Status==='TAMPIL'?'Arsipkan':'Tampilkan'}</button></td>
+            <td>
+                <button class="btn btn-sm btn-outline-danger" onclick="API.deleteTestimoni('${t.UID}')" title="Hapus Ulasan">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            </td>
+        </tr>`;
+    });
+    tbHtml += `</tbody></table></div>`;
+    return tbHtml;
+};
 
     htmlContent += buildTable(aktifList, 'testi-aktif');
     htmlContent += buildTable(arsipList, 'testi-arsip');

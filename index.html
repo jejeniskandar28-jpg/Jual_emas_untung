@@ -757,15 +757,24 @@ const DEFAULT_CONFIG = {
             setupRealtimeListeners: function() {
                 try {
                     // Sync Config
+                // Sync Config
                 db.collection('erp_data').doc('appConfig').onSnapshot(doc => {
                     if (doc.exists) { 
                         appConfig = doc.data(); 
                         UI.updateStoreStatus(); 
                         UI.updateRunningText(); 
 
-                        // Tampilkan atau Sembunyikan Banner Global secara Real-time
+                        // Tampilkan Banner Global secara Real-time sampai ke Halaman Depan
                         const banner = document.getElementById('global-maintenance-banner');
-                        if(banner) banner.style.display = appConfig.isMaintenance ? 'block' : 'none';
+                        if(banner) {
+                            banner.style.display = appConfig.isMaintenance ? 'block' : 'none';
+                            if(appConfig.isMaintenance) {
+                                // Pindahkan paksa banner ke layer paling atas body
+                                document.body.prepend(banner); 
+                                banner.innerHTML = '<i class="fa-solid fa-triangle-exclamation me-2 fa-fade"></i> MAAF, SISTEM SEDANG DALAM PERBAIKAN / PEMELIHARAAN. Fitur transaksi dan pendaftaran baru ditutup sementara.';
+                                banner.style.zIndex = '999999';
+                            }
+                        }
                     }
                 });
 
@@ -1104,6 +1113,8 @@ handleLogin: async function(e) {
 
 handleRegister: async function(e) { 
     e.preventDefault(); 
+    if(appConfig.isMaintenance) return Swal.fire("Sedang Perbaikan", "Maaf, sistem sedang dalam pemeliharaan. Pendaftaran akun baru ditutup sementara waktu.", "warning");
+    
     UI.showLoading(true, "Mendaftarkan Akun..."); 
     const user = document.getElementById('reg-username').value; 
     const pass = document.getElementById('reg-password').value;
@@ -1741,7 +1752,7 @@ saveAppConfig: async function(isToggleOnly = false) {
             try {
                 // 1. BLOKIR JIKA ADMIN MENYALAKAN MODE MAINTENANCE
                 if(appConfig.isMaintenance) {
-                    return Swal.fire("Mohon Maaf", "Sistem saat ini sedang dalam pemeliharaan rutin/perbaikan. Transaksi tidak dapat diproses saat ini. Mohon tunggu beberapa saat.", "warning");
+                    return Swal.fire("MAAF, SEDANG PERBAIKAN", "Sistem saat ini sedang dalam proses pemeliharaan data. Anda tidak dapat membuat transaksi baru saat ini demi keamanan data Anda. Mohon kembali lagi nanti.", "warning");
                 }
 
                 // 2. BLOKIR JIKA INTERNET KLIEN MATI (OFFLINE MURNI)

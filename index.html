@@ -1369,6 +1369,13 @@ if (wasDemoUser) {
         }).then(async (r) => {
             if (r.isConfirmed) {
                 try {
+                    UI.showLoading(true, "Menghapus ulasan..."); 
+                    
+                    // ➕ TAMBAHAN BARU: Hapus permanen dari Server Cloud
+                    if (isFirebaseActive && !isManualLocalMode) {
+                        await db.collection('testimonials').doc(uid).delete();
+                    }
+
                     // 1. Hapus data dari array global
                     dbTestimonials = dbTestimonials.filter(t => t.UID !== uid);
                     
@@ -1409,8 +1416,19 @@ if (wasDemoUser) {
         }).then(async (r) => {
             if (r.isConfirmed) {
                 try {
+                    UI.showLoading(true, "Menghapus massal..."); 
+
                     // Kumpulkan semua UID yang dicentang
                     const uidsToDelete = Array.from(checkedBoxes).map(cb => cb.value);
+                    
+                    // ➕ TAMBAHAN BARU: Hapus permanen dari Server Cloud (Mode Batch)
+                    if (isFirebaseActive && !isManualLocalMode) {
+                        const batch = db.batch();
+                        uidsToDelete.forEach(uid => {
+                            batch.delete(db.collection('testimonials').doc(uid));
+                        });
+                        await batch.commit();
+                    }
                     
                     // Saring dan buang UID yang ada di daftar hapus
                     dbTestimonials = dbTestimonials.filter(t => !uidsToDelete.includes(t.UID));
@@ -2916,50 +2934,7 @@ deleteUser: async function(uid) {
                     list.innerHTML += `<div class="social-item-row bg-dark p-2 rounded mb-2 border border-secondary"><div class="row g-2 align-items-center"><div class="col-3"><select class="form-control form-control-custom form-control-sm soc-plat"><option value="whatsapp" ${s.platform==='whatsapp'?'selected':''}>WA</option><option value="instagram" ${s.platform==='instagram'?'selected':''}>IG</option><option value="facebook" ${s.platform==='facebook'?'selected':''}>FB</option><option value="other" ${s.platform==='other'?'selected':''}>Lainnya</option></select></div><div class="col-4"><input type="text" class="form-control form-control-custom form-control-sm soc-label" value="${s.label}" placeholder="Label"></div><div class="col-4"><input type="text" class="form-control form-control-custom form-control-sm soc-url" value="${s.url}" placeholder="URL/No"></div><div class="col-1 text-end"><button class="btn btn-sm btn-danger" onclick="API.removeSocial(${idx})"><i class="fa-solid fa-xmark"></i></button></div></div></div>`;
                 });
             },
-            // Tambahkan fungsi mass delete di API object:
-            deleteTestimoniMassal: async function() { 
-    // Mengambil semua checkbox yang sedang dicentang di dalam tabel
-    const checks = document.querySelectorAll('.testi-check:checked'); 
-    if(checks.length === 0) return Swal.fire("Pilih Data", "Pilih minimal satu ulasan yang ingin dihapus dengan mencentang kotaknya.", "warning"); 
-
-    const uids = Array.from(checks).map(c => c.value); 
-    const conf = await Swal.fire({
-        title: 'Hapus Massal?', 
-        text: `Anda yakin ingin menghapus ${uids.length} ulasan yang dipilih secara permanen?`, 
-        icon: 'warning', 
-        showCancelButton: true,
-        confirmButtonColor: '#d33'
-    }); 
-
-    if(conf.isConfirmed) { 
-        try {
-            UI.showLoading(true, "Menghapus ulasan..."); 
-
-            // 1. Eksekusi Hapus di Cloud Firebase (Mode Batch)
-            if(isFirebaseActive && !isManualLocalMode) { 
-                const batch = db.batch(); 
-                uids.forEach(uid => {
-                    const docRef = db.collection('testimonials').doc(uid);
-                    batch.delete(docRef);
-                }); 
-                await batch.commit(); 
-            } 
-
-            // 2. Eksekusi Hapus di Local Array
-            dbTestimonials = dbTestimonials.filter(t => !uids.includes(t.UID)); 
-            await AppStorage.save(); 
-
-            UI.showLoading(false); 
-            UI.renderTestimoniSettings(); 
-            UI.updateLandingPage(); 
-            UI.toast(`${uids.length} Ulasan berhasil dihapus`, "success"); 
-        } catch(err) {
-            UI.showLoading(false);
-            AppLogger.logError(err, "API.deleteTestimoniMassal");
-            Swal.fire("Gagal", "Terjadi kesalahan saat menghapus data massal.", "error");
-        }
-    } 
-},
+            
 
 // Ganti renderTestimoniSettings di object UI:
 renderTestimoniSettings: function() {

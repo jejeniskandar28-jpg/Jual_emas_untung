@@ -370,6 +370,16 @@
                     </div>
                     
                     <div class="collapse show" id="adminLaporanCol"><table class="table table-dark table-hover align-middle small"><thead><tr><th>Konsumen & Info</th><th>Waktu</th><th>Rincian Item & Jenis</th><th>Arus Kas Transaksi</th><th>Status Saat Ini</th><th class="text-center" style="min-width: 150px;">Aksi Manajemen</th></tr></thead><tbody id="table-admin-appointments"></tbody></table></div>
+                    
+                    <div class="d-flex justify-content-between align-items-center mt-3 p-2 bg-dark rounded border border-secondary">
+                        <span class="small text-muted ms-2"><i class="fa-solid fa-layer-group text-info"></i> Menampilkan <b class="text-white">10</b> transaksi per halaman</span>
+                        <div class="d-flex align-items-center gap-2">
+                            <button id="btn-apt-prev" class="btn btn-sm btn-outline-info" onclick="API.changeAptPage('PREV')"><i class="fa-solid fa-chevron-left"></i> Sebelumnya</button>
+                            <span id="apt-page-info" class="small fw-bold text-white px-3 py-1 bg-secondary rounded">Hal 1</span>
+                            <button id="btn-apt-next" class="btn btn-sm btn-outline-info" onclick="API.changeAptPage('NEXT')">Selanjutnya <i class="fa-solid fa-chevron-right"></i></button>
+                        </div>
+                    </div>
+                    
                 </div>
             </div>
 
@@ -649,6 +659,10 @@ const iconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My
         const IS_PREVIEW = true;
         let sessionUser = null; let currentCart = []; let editAptId = null; let editGoldId = null;
         let dbUsers = [], dbGoldSettings = [], dbAppointments = [], dbFinance = [], dbTemplates = [], dbTestimonials = [], dbServices = [];
+        
+        // --- BARU: STATE PAGINASI TRANSAKSI LOKAL & MEMORI CEKLIS ---
+        let aptPaging = { page: 1, limit: 10 };
+        let selectedTransaksi = []; // Keranjang tak kasat mata untuk ID yang dicentang
         let GLOBAL_MULTIPLIER = 2326; let GLOBAL_MULTIPLIER_SILVER = 15000;
         let appConfig = {};
         // --- STATE PAGINASI AKUN ---
@@ -748,10 +762,20 @@ const DEFAULT_CONFIG = {
                     }
                 });
 
-                    // Sync Appointments (Multiuser fix)
-                    db.collection('appointments').onSnapshot(snapshot => {
+                    // Sync Appointments (Multiuser fix) & Batas Kapasitas 60 Hari
+                    const batasWaktu = new Date();
+                    batasWaktu.setDate(batasWaktu.getDate() - 60);
+                    const batasWaktuStr = batasWaktu.toISOString();
+
+                    db.collection('appointments')
+                      .where('Timestamp', '>=', batasWaktuStr) // Mengambil 60 hari terakhir saja
+                      .onSnapshot(snapshot => {
                         let tempApts = [];
                         snapshot.forEach(doc => tempApts.push(doc.data()));
+                        
+                        // Urutkan data terbaru di atas
+                        tempApts.sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+                        
                         dbAppointments = tempApts;
                         if(sessionUser) {
                             if(sessionUser.Role === 'Admin') { UI.renderAdminLaporanView(); UI.renderAdminFinanceView(); }
@@ -1197,6 +1221,30 @@ if (wasDemoUser) {
         function getNotaFooter(){ return `<div class="dashed-line"></div><div class="text-center" style="margin-top:5px;">Terima Kasih</div><div class="text-center" style="font-size:9px;">Barang yang sudah dibeli tidak dapat ditukar/dikembalikan</div><script>window.print();setTimeout(function(){window.close();},1000);<\/script>`; }
 
         const API = {
+            // --- BARU: KUMPULAN FUNGSI PAGINASI & MEMORI CEKLIS ---
+            changeAptPage: function(direction) {
+                if (direction === 'PREV') aptPaging.page--;
+                else if (direction === 'NEXT') aptPaging.page++;
+                UI.renderAdminLaporanView(); // Render ulang dengan halaman baru
+            },
+
+            toggleAptCheck: function(uid, isChecked) {
+                if (isChecked) {
+                    // Masukkan ke keranjang memori jika belum ada
+                    if (!selectedTransaksi.includes(uid)) selectedTransaksi.push(uid);
+                } else {
+                    // Buang dari keranjang memori
+                    selectedTransaksi = selectedTransaksi.filter(id => id !== uid);
+                }
+            },
+            
+            clearAptCheck: function() {
+                selectedTransaksi = []; // Kosongkan keranjang memori
+                UI.renderAdminLaporanView();
+                UI.toast("Pilihan berhasil dibersihkan", "info");
+            },
+            // ----------------------------------------------------
+
             toggleLocalMode: async function(isChecked) {
     isManualLocalMode = isChecked;
     
@@ -2800,142 +2848,118 @@ deleteUser: async function(uid) {
                 this.renderCart();
             },
             renderAdminLaporanView: function() {
-                const tb = document.getElementById('table-admin-appointments'); tb.innerHTML = '';
+                const tb = document.getElementById('table-admin-appointments'); 
+                if(!tb) return;
+                tb.innerHTML = '';
+                
                 const filterWaktu = document.getElementById('filter-antrean-waktu').value;
                 const filterStatus = document.getElementById('filter-antrean-status').value;
                 
-                let data = dbAppointments;
+                let filteredData = dbAppointments;
                 const todayStr = new Date().toISOString().split('T')[0];
                 const currMonthStr = todayStr.substring(0, 7);
                 const currYearStr = todayStr.substring(0, 4);
 
-                if(filterWaktu === 'TODAY') data = data.filter(a => a.Tanggal === todayStr);
-                else if(filterWaktu === 'MONTH') data = data.filter(a => a.Tanggal.startsWith(currMonthStr));
-                else if(filterWaktu === 'YEAR') data = data.filter(a => a.Tanggal.startsWith(currYearStr));
+                // 1. TAHAP SARINGAN (FILTER)
+                if(filterWaktu === 'TODAY') filteredData = filteredData.filter(a => a.Tanggal === todayStr);
+                else if(filterWaktu === 'MONTH') filteredData = filteredData.filter(a => a.Tanggal.startsWith(currMonthStr));
+                else if(filterWaktu === 'YEAR') filteredData = filteredData.filter(a => a.Tanggal.startsWith(currYearStr));
                 else if(filterWaktu === 'CUSTOM') {
                     const s = document.getElementById('filter-start-date').value;
                     const e = document.getElementById('filter-end-date').value;
-                    
-                    data = data.filter(a => {
+                    filteredData = filteredData.filter(a => {
                         let pass = true;
                         const trxDate = new Date(a.Tanggal + 'T12:00:00').getTime(); 
-                        if (s) {
-                            const startDate = new Date(s + 'T00:00:00').getTime();
-                            if (trxDate < startDate) pass = false;
-                        }
-                        if (e) {
-                            const endDate = new Date(e + 'T23:59:59').getTime();
-                            if (trxDate > endDate) pass = false;
-                        }
+                        if (s && trxDate < new Date(s + 'T00:00:00').getTime()) pass = false;
+                        if (e && trxDate > new Date(e + 'T23:59:59').getTime()) pass = false;
                         return pass;
                     });
                 }
+
                 if(filterStatus !== 'ALL') {
-                    if(filterStatus === 'PROSES') data = data.filter(a => a.Status_Janji !== 'SELESAI' && a.Status_Janji !== 'BATAL');
-                    else data = data.filter(a => a.Status_Janji === filterStatus);
+                    if(filterStatus === 'PROSES') filteredData = filteredData.filter(a => a.Status_Janji !== 'SELESAI' && a.Status_Janji !== 'BATAL');
+                    else filteredData = filteredData.filter(a => a.Status_Janji === filterStatus);
                 }
 
-                if(data.length === 0) tb.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">Tidak ada data antrean/transaksi ditemukan.</td></tr>';
-                else data.forEach(a => {
-                    const uData = dbUsers.find(x => x.Username === a.Username) || {};
-                    let contactStr = uData.No_HP ? `<br><a href="https://api.whatsapp.com/send?phone=${uData.No_HP.startsWith('0')?'62'+uData.No_HP.substring(1):uData.No_HP}" target="_blank" class="text-success text-decoration-none"><i class="fa-brands fa-whatsapp"></i> ${uData.No_HP}</a>` : '';
-                    
-                    let itemsStr = a.Items.map((i, idx) => `<div>- ${i.Type==='JASA'?i.Nama:i.Kategori+' '+i.Kadar+' '+i.Varian} (${i.Qty}x) ${i.Foto?`<i class="fa-solid fa-image text-info ms-1" onclick="viewImage('${i.Foto}')" style="cursor:pointer;"></i>`:''}</div>`).join('');
-                    
-                    let locStr = a.Lokasi_Transaksi === 'JEMPUT' ? `<br><span class="badge bg-warning text-dark mt-1"><i class="fa-solid fa-truck"></i> Layanan Jemput</span><br><small class="text-muted d-block mt-1">${a.Alamat_Jemput}</small><a href="https://www.google.com/maps/search/?api=1&query=${a.Lat},${a.Lng}" target="_blank" class="btn btn-sm btn-outline-info mt-1 py-0 px-2 fw-bold" style="font-size:0.75rem;"><i class="fa-solid fa-map-location-dot"></i> Buka Titik Maps</a>` : '<br><span class="badge bg-secondary mt-1"><i class="fa-solid fa-store"></i> Datang Di Toko</span>';
-                    
-                    let kasStr = '';
-                    if (a.Jenis_Transaksi === "GABUNGAN") {
-                        kasStr = `<small class="text-muted d-block">Hak: ${this.formatRp(a.Total_Hak_Konsumen)}</small><small class="text-muted d-block">Tagihan: ${this.formatRp(a.Total_Tagihan_Jasa)}</small><b class="${a.Net_Total>=0?'text-success':'text-danger'}">${a.Net_Total>=0?'Terima':'Bayar'}: ${this.formatRp(Math.abs(a.Net_Total))}</b>`;
-                    } else if (a.Jenis_Transaksi.includes("EMAS")) {
-                        kasStr = `<b class="${a.Net_Total>=0?'text-success':'text-danger'}">${a.Net_Total>=0?'Terima':'Bayar'}: ${this.formatRp(Math.abs(a.Net_Total))}</b>`;
-                    } else if (a.Jenis_Transaksi === "JASA") {
-                        kasStr = `<b class="text-danger">Tagihan: ${this.formatRp(Math.abs(a.Net_Total))}</b>`;
-                    }
-                    
-                    let payStr = `<br><small class="text-info">${a.MetodePembayaran || 'TUNAI'}</small>`;
-                    if(a.Is_Agen) payStr += `<br><small class="text-warning"><i class="fa-solid fa-handshake"></i> Agen (Komisi: ${a.Komisi_Agen?this.formatRp(a.Komisi_Agen):'Belum Diset'})</small>`;
+                // 2. TAHAP PEMOTONGAN PAGINASI (SLICING)
+                const totalItems = filteredData.length;
+                const totalPages = Math.ceil(totalItems / aptPaging.limit) || 1;
 
-                    let btn = '';
-                    let actionHtml = '';
+                // Pengaman Page Retention (Jika halaman kelebihan akibat data dihapus)
+                if (aptPaging.page > totalPages) aptPaging.page = totalPages;
+                if (aptPaging.page < 1) aptPaging.page = 1;
 
-                    if(a.Status_Janji === 'MENUNGGU_TAKSIRAN') {
-                        btn = `<button class="btn btn-sm btn-gold mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'SIMPAN_TAKSIRAN')"><i class="fa-solid fa-calculator"></i> Taksir/Deal Harga</button>
-                               <button class="btn btn-sm btn-success mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'KIRIM_TAKSIRAN')"><i class="fa-solid fa-paper-plane"></i> Kirim ke Pelanggan</button>
-                               <button class="btn btn-sm btn-danger w-100" onclick="API.processAction('${a.UID}', 'BATAL')">Tolak/Batal</button>`;
-                    }
-                    else if(a.Status_Janji === 'MENUNGGU_PERSETUJUAN_ADMIN') {
-                        btn = `<button class="btn btn-sm btn-success mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'SETUJUI_PESANAN')"><i class="fa-solid fa-check"></i> Setujui & Beri Estimasi</button>
-                               <button class="btn btn-sm btn-danger w-100" onclick="API.processAction('${a.UID}', 'BATAL')">Tolak/Batal</button>`;
-                    }
-                    else if(a.Status_Janji === 'MENUNGGU_PEMBAYARAN_AWAL') {
-                        if (!a.MetodePembayaran.includes('TF')) {
-                            btn = `<button class="btn btn-sm btn-success mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'KONFIRM_TERIMA_UANG')"><i class="fa-solid fa-money-bill"></i> Terima Uang & Proses</button>
-                                   <button class="btn btn-sm btn-danger w-100" onclick="API.processAction('${a.UID}', 'BATAL')">Batal</button>`;
-                        } else {
-                            btn = `<span class="badge bg-warning text-dark w-100 py-2 mb-1">Menunggu TF Pelanggan</span>`;
+                const startIndex = (aptPaging.page - 1) * aptPaging.limit;
+                const endIndex = startIndex + aptPaging.limit;
+                const paginatedData = filteredData.slice(startIndex, endIndex);
+
+                // Update UI Paginasi
+                const infoEl = document.getElementById('apt-page-info');
+                const btnPrev = document.getElementById('btn-apt-prev');
+                const btnNext = document.getElementById('btn-apt-next');
+                
+                if (infoEl) infoEl.innerText = `Hal ${aptPaging.page} dari ${totalPages}`;
+                if (btnPrev) btnPrev.disabled = aptPaging.page <= 1;
+                if (btnNext) btnNext.disabled = aptPaging.page >= totalPages;
+
+                // Tambahan info jumlah di keranjang
+                if (selectedTransaksi.length > 0 && infoEl) {
+                    infoEl.innerHTML += ` | <span class="text-warning"><i class="fa-solid fa-check-square"></i> ${selectedTransaksi.length} Dipilih</span>`;
+                }
+
+                // 3. TAHAP RENDER HTML
+                if(paginatedData.length === 0) {
+                    tb.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">Tidak ada data antrean/transaksi ditemukan.</td></tr>';
+                } else {
+                    paginatedData.forEach(a => {
+                        const uData = dbUsers.find(x => x.Username === a.Username) || {};
+                        let contactStr = uData.No_HP ? `<br><a href="https://api.whatsapp.com/send?phone=${uData.No_HP.startsWith('0')?'62'+uData.No_HP.substring(1):uData.No_HP}" target="_blank" class="text-success text-decoration-none"><i class="fa-brands fa-whatsapp"></i> ${uData.No_HP}</a>` : '';
+                        
+                        let itemsStr = a.Items.map((i) => `<div>- ${i.Type==='JASA'?i.Nama:i.Kategori+' '+i.Kadar+' '+i.Varian} (${i.Qty}x) ${i.Foto?`<i class="fa-solid fa-image text-info ms-1" onclick="viewImage('${i.Foto}')" style="cursor:pointer;"></i>`:''}</div>`).join('');
+                        
+                        let locStr = a.Lokasi_Transaksi === 'JEMPUT' ? `<br><span class="badge bg-warning text-dark mt-1"><i class="fa-solid fa-truck"></i> Layanan Jemput</span>` : '<br><span class="badge bg-secondary mt-1"><i class="fa-solid fa-store"></i> Datang Di Toko</span>';
+                        
+                        let kasStr = '';
+                        if (a.Jenis_Transaksi === "GABUNGAN") kasStr = `<small class="text-muted d-block">Hak: ${this.formatRp(a.Total_Hak_Konsumen)}</small><small class="text-muted d-block">Tagihan: ${this.formatRp(a.Total_Tagihan_Jasa)}</small><b class="${a.Net_Total>=0?'text-success':'text-danger'}">${a.Net_Total>=0?'Terima':'Bayar'}: ${this.formatRp(Math.abs(a.Net_Total))}</b>`;
+                        else if (a.Jenis_Transaksi.includes("EMAS")) kasStr = `<b class="${a.Net_Total>=0?'text-success':'text-danger'}">${a.Net_Total>=0?'Terima':'Bayar'}: ${this.formatRp(Math.abs(a.Net_Total))}</b>`;
+                        else if (a.Jenis_Transaksi === "JASA") kasStr = `<b class="text-danger">Tagihan: ${this.formatRp(Math.abs(a.Net_Total))}</b>`;
+                        
+                        let payStr = `<br><small class="text-info">${a.MetodePembayaran || 'TUNAI'}</small>`;
+                        if(a.Is_Agen) payStr += `<br><small class="text-warning"><i class="fa-solid fa-handshake"></i> Agen (Komisi: ${a.Komisi_Agen?this.formatRp(a.Komisi_Agen):'Belum Diset'})</small>`;
+
+                        let btn = '';
+                        if(a.Status_Janji === 'MENUNGGU_TAKSIRAN') btn = `<button class="btn btn-sm btn-gold mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'SIMPAN_TAKSIRAN')"><i class="fa-solid fa-calculator"></i> Taksir/Deal</button><button class="btn btn-sm btn-success mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'KIRIM_TAKSIRAN')"><i class="fa-solid fa-paper-plane"></i> Kirim</button><button class="btn btn-sm btn-danger w-100" onclick="API.processAction('${a.UID}', 'BATAL')">Batal</button>`;
+                        else if(a.Status_Janji === 'MENUNGGU_PERSETUJUAN_ADMIN') btn = `<button class="btn btn-sm btn-success mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'SETUJUI_PESANAN')"><i class="fa-solid fa-check"></i> Setujui</button><button class="btn btn-sm btn-danger w-100" onclick="API.processAction('${a.UID}', 'BATAL')">Batal</button>`;
+                        else if(a.Status_Janji === 'MENUNGGU_PEMBAYARAN_AWAL') btn = !a.MetodePembayaran.includes('TF') ? `<button class="btn btn-sm btn-success mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'KONFIRM_TERIMA_UANG')"><i class="fa-solid fa-money-bill"></i> Terima Uang</button>` : `<span class="badge bg-warning text-dark w-100 py-2 mb-1">Menunggu TF Plg</span>`;
+                        else if (a.Status_Janji === 'MENUNGGU_KONF_KONSUMEN') btn = `<span class="badge bg-warning text-dark w-100 py-2 mb-1">Menunggu Keputusan</span>`;
+                        else if(a.Status_Janji === 'VERIFIKASI_PEMBAYARAN') btn = `${a.BuktiBayarCustomer ? `<button class="btn btn-sm btn-outline-info mb-1 w-100" onclick="viewImage('${a.BuktiBayarCustomer}')"><i class="fa-solid fa-image"></i> Cek Bukti TF</button>` : ''}<button class="btn btn-sm btn-success mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'VERIFIKASI_TF')"><i class="fa-solid fa-check-double"></i> Verifikasi TF</button>`;
+                        else if(a.Status_Janji === 'MENUNGGU_TF_ADMIN') btn = `<button class="btn btn-sm btn-primary mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'SELESAI_ADMIN')"><i class="fa-solid fa-upload"></i> Upload TF</button>`;
+                        else if(a.Status_Janji === 'MENUNGGU_SERAH_TERIMA') btn = `<button class="btn btn-sm btn-primary mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'SELESAI_ADMIN')"><i class="fa-solid fa-hand-holding-dollar"></i> Serahkan</button>`;
+                        else if(a.Status_Janji === 'PROSES_JASA') btn = `<button class="btn btn-sm btn-success mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'BARANG_SIAP')"><i class="fa-solid fa-box-open"></i> Selesai/Siap</button>`;
+                        else if(a.Status_Janji === 'MENUNGGU_PEMBAYARAN') btn = `<span class="badge bg-info w-100 py-2 mb-1">Menunggu TF Akhir</span>`;
+                        else if(a.Status_Janji === 'MENUNGGU_KONF_PENERIMAAN' || a.Status_Janji === 'SIAP_DIAMBIL') btn = `<span class="badge bg-primary w-100 py-2 mb-1">Konfirmasi Plg</span>`;
+                        else if (a.Status_Janji === 'SELESAI') btn = `<span class="badge bg-success w-100 py-2 mb-2"><i class="fa-solid fa-check"></i> Selesai</span><button class="btn btn-sm btn-outline-info mb-1 w-100" onclick="API.printNota('${a.UID}')"><i class="fa-solid fa-print"></i> Struk</button>`;
+                        else if (a.Status_Janji === 'BATAL') btn = `<span class="badge bg-danger w-100 py-2"><i class="fa-solid fa-xmark"></i> Dibatalkan</span>`;
+                        
+                        let extraOpts = '';
+                        if(a.Status_Janji !== 'SELESAI' && a.Status_Janji !== 'BATAL') {
+                            extraOpts = `<hr class="border-secondary my-2"><div class="dropdown"><button class="btn btn-sm btn-outline-secondary w-100 dropdown-toggle" type="button" data-bs-toggle="dropdown">Opsi Lain</button><ul class="dropdown-menu dropdown-menu-dark shadow"><li><a class="dropdown-item" href="#" onclick="UI.editMarkupApt('${a.UID}')"><i class="fa-solid fa-pen-to-square text-info"></i> Edit Grand Total</a></li><li><a class="dropdown-item" href="#" onclick="API.sendWA('${a.UID}')"><i class="fa-brands fa-whatsapp text-success"></i> Chat Status</a></li></ul></div>`;
                         }
-                    }
-                    else if (a.Status_Janji === 'MENUNGGU_KONF_KONSUMEN') {
-                        btn = `<span class="badge bg-warning text-dark w-100 py-2 mb-1">Menunggu Keputusan Plg</span>
-                               <button class="btn btn-sm btn-danger w-100" onclick="API.processAction('${a.UID}', 'BATAL')">Batalkan</button>`;
-                    }
-                    else if(a.Status_Janji === 'VERIFIKASI_PEMBAYARAN') {
-                        let buktibtn = a.BuktiBayarCustomer ? `<button class="btn btn-sm btn-outline-info mb-1 w-100" onclick="viewImage('${a.BuktiBayarCustomer}')"><i class="fa-solid fa-image"></i> Cek Bukti TF Plg</button>` : '';
-                        btn = `${buktibtn}<button class="btn btn-sm btn-success mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'VERIFIKASI_TF')"><i class="fa-solid fa-check-double"></i> Verifikasi Dana Masuk</button>`;
-                    }
-                    else if(a.Status_Janji === 'MENUNGGU_TF_ADMIN') {
-                        btn = `<button class="btn btn-sm btn-primary mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'SELESAI_ADMIN')"><i class="fa-solid fa-upload"></i> Upload TF & Kirim</button>`;
-                    }
-                    else if(a.Status_Janji === 'MENUNGGU_SERAH_TERIMA') {
-                        btn = `<button class="btn btn-sm btn-primary mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'SELESAI_ADMIN')"><i class="fa-solid fa-hand-holding-dollar"></i> Serahkan Uang/Barang</button>`;
-                    }
-                    else if(a.Status_Janji === 'PROSES_JASA') {
-                        btn = `<button class="btn btn-sm btn-success mb-1 w-100 fw-bold" onclick="API.processAction('${a.UID}', 'BARANG_SIAP')"><i class="fa-solid fa-box-open"></i> Barang Selesai/Siap</button>
-                               <button class="btn btn-sm btn-outline-info w-100" onclick="API.processAction('${a.UID}', 'SET_ESTIMASI_SELESAI')"><i class="fa-solid fa-clock"></i> Update Estimasi Selesai</button>`;
-                    }
-                    else if(a.Status_Janji === 'MENUNGGU_PEMBAYARAN') {
-                        btn = `<span class="badge bg-info w-100 py-2 mb-1">Menunggu Pembayaran (Akhir)</span>`;
-                    }
-                    else if(a.Status_Janji === 'MENUNGGU_KONF_PENERIMAAN' || a.Status_Janji === 'SIAP_DIAMBIL') {
-                        btn = `<span class="badge bg-primary w-100 py-2 mb-1">Menunggu Konfirmasi Plg</span>
-                               ${a.BuktiBayarAdmin ? `<button class="btn btn-sm btn-outline-info w-100 mt-1" onclick="viewImage('${a.BuktiBayarAdmin}')"><i class="fa-solid fa-image"></i> Lihat Bukti TF Admin</button>` : ''}`;
-                    }
-                    else if (a.Status_Janji === 'SELESAI') {
-                        let btnCetak = `<button class="btn btn-sm btn-outline-info mb-1 w-100" onclick="API.printNota('${a.UID}')"><i class="fa-solid fa-print"></i> Cetak Struk</button>`;
-                        let btnShare = `<button class="btn btn-sm btn-outline-success w-100" onclick="API.shareNotaWA('${a.UID}')"><i class="fa-brands fa-whatsapp"></i> Kirim Struk WA</button>`;
-                        btn = `<span class="badge bg-success w-100 py-2 mb-2"><i class="fa-solid fa-check"></i> Selesai</span>${btnCetak}${btnShare}`;
-                    }
-                    else if (a.Status_Janji === 'BATAL') {
-                        btn = `<span class="badge bg-danger w-100 py-2"><i class="fa-solid fa-xmark"></i> Dibatalkan</span>`;
-                    }
-                    
-                    let extraOpts = '';
-                    if(a.Status_Janji !== 'SELESAI' && a.Status_Janji !== 'BATAL') {
-                        extraOpts = `<hr class="border-secondary my-2"><div class="dropdown"><button class="btn btn-sm btn-outline-secondary w-100 dropdown-toggle" type="button" data-bs-toggle="dropdown">Opsi Lain</button><ul class="dropdown-menu dropdown-menu-dark shadow">`;
-                        if(a.Is_Agen) extraOpts += `<li><a class="dropdown-item" href="#" onclick="API.processAction('${a.UID}', 'SET_KOMISI_AGEN')"><i class="fa-solid fa-percent text-warning"></i> Set Komisi Agen</a></li>`;
-                        extraOpts += `<li><a class="dropdown-item" href="#" onclick="UI.editMarkupApt('${a.UID}')"><i class="fa-solid fa-pen-to-square text-info"></i> Edit Grand Total Kas</a></li>`;
-                        a.Items.forEach((it, idx) => { extraOpts += `<li><a class="dropdown-item" href="#" onclick="UI.editItemPrice('${a.UID}', ${idx})"><i class="fa-solid fa-tag text-success"></i> Edit Harga: ${it.Type==='JASA'?it.Nama:it.Kategori}</a></li>`; });
-                        extraOpts += `<li><a class="dropdown-item" href="#" onclick="API.sendWA('${a.UID}')"><i class="fa-brands fa-whatsapp text-success"></i> Chat Update Status</a></li>`;
-                        extraOpts += `</ul></div>`;
-                    }
-                    
-                    let checkboxHtml = a.Status_Janji === 'SELESAI' ? `<input type="checkbox" class="form-check-input rekap-check mt-1" value="${a.UID}">` : '';
+                        
+                        // BARU: Logika Checkbox berdasarkan Keranjang Memori
+                        let isChecked = selectedTransaksi.includes(a.UID) ? 'checked' : '';
+                        let checkboxHtml = a.Status_Janji === 'SELESAI' ? `<input type="checkbox" class="form-check-input mt-1" value="${a.UID}" ${isChecked} onchange="API.toggleAptCheck('${a.UID}', this.checked)">` : '';
 
-                    tb.innerHTML += `<tr>
-                        <td>
-                            <div class="d-flex align-items-start gap-2">
-                                ${checkboxHtml}
-                                <div><b>${a.Username}</b>${contactStr}${locStr}</div>
-                            </div>
-                        </td>
-                        <td>${a.Tanggal}<br>${a.Waktu}<br><small class="text-warning">${a.UID}</small></td>
-                        <td><span class="badge bg-info text-dark mb-1">${a.Jenis_Transaksi.replace(/_/g,' ')}</span><br><small class="text-muted d-block">${itemsStr}</small></td>
-                        <td>${kasStr}${payStr}</td>
-                        <td><span class="badge bg-secondary mb-1" style="white-space:normal;">${a.Status_Janji.replace(/_/g,' ')}</span>${a.EstimasiSelesai?`<br><small class="text-info d-block fw-bold">Est Selesai: ${a.EstimasiSelesai}</small>`:''}${a.Feedback?`<br><small class="text-danger d-block mt-1 fst-italic">Ket: ${a.Feedback}</small>`:''}</td>
-                        <td>${btn}${extraOpts}</td>
-                    </tr>`;
-                });
+                        tb.innerHTML += `<tr>
+                            <td><div class="d-flex align-items-start gap-2">${checkboxHtml}<div><b>${a.Username}</b>${contactStr}${locStr}</div></div></td>
+                            <td>${a.Tanggal}<br>${a.Waktu}<br><small class="text-warning">${a.UID}</small></td>
+                            <td><span class="badge bg-info text-dark mb-1">${a.Jenis_Transaksi.replace(/_/g,' ')}</span><br><small class="text-muted d-block">${itemsStr}</small></td>
+                            <td>${kasStr}${payStr}</td>
+                            <td><span class="badge bg-secondary mb-1" style="white-space:normal;">${a.Status_Janji.replace(/_/g,' ')}</span></td>
+                            <td>${btn}${extraOpts}</td>
+                        </tr>`;
+                    });
+                }
             },
             renderAdminFinanceView: function() {
                 const tb = document.getElementById('table-finance-log'); tb.innerHTML = '';
@@ -3195,10 +3219,31 @@ renderTestimoniSettings: function() {
                 }, 300);
             },
             processRekapTerpilih: function(tipe) {
-                const checks = document.querySelectorAll('.rekap-check:checked');
-                if(checks.length === 0) return Swal.fire("Pilih Transaksi", "Ceklis minimal satu transaksi selesai untuk direkap.", "warning");
-                let uids = []; checks.forEach(c => uids.push(c.value));
-                if(tipe === 'PRINT') API.printRekapNota(uids); else if(tipe === 'WA') API.shareRekapWA(uids);
+                // Membaca langsung dari memori, bukan dari layar
+                if(selectedTransaksi.length === 0) {
+                    return Swal.fire("Pilih Transaksi", "Ceklis minimal satu transaksi selesai untuk direkap.", "warning");
+                }
+                
+                // Eksekusi print atau WA
+                if(tipe === 'PRINT') {
+                    API.printRekapNota(selectedTransaksi); 
+                } else if(tipe === 'WA') {
+                    API.shareRekapWA(selectedTransaksi);
+                }
+                
+                // Menawarkan untuk mengosongkan keranjang setelah selesai
+                Swal.fire({
+                    title: 'Berhasil',
+                    text: 'Apakah Anda ingin mengosongkan centang pilihan?',
+                    icon: 'success',
+                    showCancelButton: true,
+                    confirmButtonText: 'Ya, Kosongkan',
+                    cancelButtonText: 'Biarkan Saja'
+                }).then((r) => {
+                    if (r.isConfirmed) {
+                        API.clearAptCheck();
+                    }
+                });
             },
             toggleCustomDateFilter: function() {
                 const val = document.getElementById('filter-antrean-waktu').value;

@@ -655,6 +655,9 @@ const iconBase64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My
 let userPaging = { lastDoc: null, firstDoc: null, page: 1, limit: 10 };
 let userSearchTimeout = null;
 
+// --- BARU: STATE PAGINASI MANAGEMENT TESTIMONI ---
+let testiPaging = { lastDoc: null, firstDoc: null, page: 1, limit: 5 };
+
 const DEFAULT_CONFIG = {
         isMaintenance: false, showGraph: true, allowBuy: true, limitTrxEmas: 5, limitTrxJasa: 5, 
             timeSlots: ["09:00 - 10:30 WIB", "10:30 - 12:00 WIB", "13:00 - 14:30 WIB", "15:30 - 17:00 WIB"],
@@ -1265,8 +1268,162 @@ if (wasDemoUser) {
                 document.getElementById('btn-user-prev').disabled = (userPaging.page === 1);
                 document.getElementById('btn-user-next').disabled = (snapshot.docs.length < userPaging.limit);
             } catch (err) { UI.showLoading(false); AppLogger.logError(err, "Paging Error"); }
-        },
-        saveAppConfig: async function(isToggleOnly = false) {
+},
+
+// ==========================================
+// BARU: KUMPULAN LOGIKA PAGINASI TESTIMONI CLOUD
+// ==========================================
+fetchTestimoniPaging: async function(direction = 'FIRST') {
+    try {
+        if (!isFirebaseActive || isManualLocalMode) return UI.toast("Paging butuh koneksi Online", "warning");
+        UI.showLoading(true, "Mengambil Testimoni Cloud...");
+
+        let query = db.collection('testimonials').orderBy('Timestamp', 'desc');
+
+        if (direction === 'FIRST') {
+            testiPaging.page = 1; 
+            query = query.limit(testiPaging.limit);
+        } else if (direction === 'NEXT' && testiPaging.lastDoc) {
+            testiPaging.page++; 
+            query = query.startAfter(testiPaging.lastDoc).limit(testiPaging.limit);
+        } else if (direction === 'PREV' && testiPaging.firstDoc) {
+            testiPaging.page = Math.max(1, testiPaging.page - 1); 
+            query = query.endBefore(testiPaging.firstDoc).limitToLast(testiPaging.limit);
+        }
+
+        const snapshot = await query.get();
+        UI.showLoading(false);
+
+        const tb = document.getElementById('table-admin-testimoni-paging'); 
+        if(!tb) return;
+        tb.innerHTML = '';
+
+        if (snapshot.empty) {
+            tb.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">Tidak ada ulasan ditemukan di Cloud.</td></tr>';
+            document.getElementById('btn-testi-next').disabled = true; 
+            return;
+        }
+
+        testiPaging.firstDoc = snapshot.docs[0]; 
+        testiPaging.lastDoc = snapshot.docs[snapshot.docs.length - 1];
+
+        snapshot.forEach(doc => {
+            const t = doc.data();
+            let stars = '';
+            for(let i=0; i<t.Star; i++) stars += '<i class="fa-solid fa-star text-warning" style="font-size:0.75rem;"></i>';
+
+            let badgeStatus = t.Status === 'TAMPIL' 
+                ? '<span class="badge bg-success"><i class="fa-solid fa-eye"></i> Tampil</span>' 
+                : '<span class="badge bg-secondary"><i class="fa-solid fa-eye-slash"></i> Sembunyi</span>';
+
+            tb.innerHTML += `<tr>
+                <td><input type="checkbox" class="form-check-input testi-paging-check" value="${doc.id}"></td>
+                <td><b>${t.Username || 'Anonim'}</b><br><small class="text-muted">${t.Timestamp ? t.Timestamp.substring(0,10) : ''}</small></td>
+                <td><div class="small text-wrap" style="max-width:250px;">"${t.Text || ''}"</div><div class="mt-1">${stars}</div></td>
+                <td>${badgeStatus}</td>
+                <td>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-warning" onclick="API.toggleTestimoniPagingStatus('${doc.id}')" title="Ubah Visibilitas">
+                            <i class="fa-solid ${t.Status==='TAMPIL'?'fa-box-archive':'fa-eye'}"></i>
+                        </button>
+                        <button class="btn btn-outline-danger" onclick="API.deleteTestimoniPaging('${doc.id}')" title="Hapus Permanen">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>`;
+        });
+
+        document.getElementById('testi-page-info').innerText = `Hal ${testiPaging.page}`;
+        document.getElementById('btn-testi-prev').disabled = (testiPaging.page === 1);
+        document.getElementById('btn-testi-next').disabled = (snapshot.docs.length < testiPaging.limit);
+    } catch (err) { 
+        UI.showLoading(false); 
+        AppLogger.logError(err, "Testimoni Paging Error"); 
+    }
+},
+
+toggleTestimoniPagingStatus: async function(uid) {
+    try {
+        if (!isFirebaseActive || isManualLocalMode) return UI.toast("Butuh koneksi Online", "warning");
+        UI.showLoading(true, "Memproses Perubahan...");
+
+        const docRef = db.collection('testimonials').doc(uid);
+        const doc = await docRef.get();
+        if(doc.exists) {
+            let currentStatus = doc.data().Status;
+            let nextStatus = currentStatus === 'TAMPIL' ? 'SEMBUNYI' : 'TAMPIL';
+            await docRef.update({ Status: nextStatus });
+            UI.showLoading(false);
+            UI.toast("Status Berhasil Diperbarui", "success");
+            this.fetchTestimoniPaging('FIRST'); 
+            UI.updateLandingPage();
+        }
+    } catch(err) { UI.showLoading(false); AppLogger.logError(err, "toggleTestimoniPagingStatus"); }
+},
+
+deleteTestimoniPaging: function(uid) {
+    Swal.fire({
+        title: 'Hapus Ulasan?',
+        text: 'Data ulasan ini akan dihapus permanen dari Server Cloud.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        confirmButtonText: 'Ya, Hapus!'
+    }).then(async (r) => {
+        if (r.isConfirmed) {
+            try {
+                UI.showLoading(true, "Menghapus dari Server...");
+                if (isFirebaseActive && !isManualLocalMode) {
+                    await db.collection('testimonials').doc(uid).delete();
+                }
+                UI.showLoading(false);
+                UI.toast("Ulasan Berhasil Dihapus", "success");
+                this.fetchTestimoniPaging('FIRST'); 
+                UI.updateLandingPage();
+            } catch(err) { UI.showLoading(false); AppLogger.logError(err, "deleteTestimoniPaging"); }
+        }
+    });
+},
+
+deleteTestimoniPagingMassal: function() {
+    const checkedBoxes = document.querySelectorAll('#setTestiCol input.testi-paging-check:checked');
+    if (checkedBoxes.length === 0) return UI.toast("Pilih ulasan yang ingin dihapus!", "warning");
+
+    Swal.fire({
+        title: `Hapus ${checkedBoxes.length} Ulasan Terpilih?`,
+        text: "Seluruh ulasan yang dicentang akan dihapus selamanya dari Cloud.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        confirmButtonText: 'Ya, Hapus Semua!'
+    }).then(async (r) => {
+        if (r.isConfirmed) {
+            try {
+                UI.showLoading(true, "Menghapus Massal di Server Cloud..."); 
+                const uidsToDelete = Array.from(checkedBoxes).map(cb => cb.value);
+
+                if (isFirebaseActive && !isManualLocalMode) {
+                    const batch = db.batch();
+                    uidsToDelete.forEach(uid => {
+                        batch.delete(db.collection('testimonials').doc(uid));
+                    });
+                    await batch.commit();
+                }
+
+                UI.showLoading(false);
+                UI.toast("Ulasan Terpilih Berhasil Dihapus", "success");
+                this.fetchTestimoniPaging('FIRST'); 
+                UI.updateLandingPage();
+            } catch (err) {
+                UI.showLoading(false);
+                AppLogger.logError(err, "deleteTestimoniPagingMassal");
+            }
+        }
+    });
+},
+
+saveAppConfig: async function(isToggleOnly = false) {
             try {
                 appConfig.storeOpen = document.getElementById('cfg-store-status').checked;
                 appConfig.isMaintenance = document.getElementById('cfg-local-mode').checked; // Simpan status maintenance
@@ -2938,51 +3095,53 @@ deleteUser: async function(uid) {
 
 // Ganti renderTestimoniSettings di object UI:
 renderTestimoniSettings: function() {
+    // 1. Tangkap elemen wadah utama di HTML
     const container = document.getElementById('setTestiCol');
+    if(!container) return;
 
-    // Struktur HTML Baru dengan Pills (Slider) & Mass Delete
-    let htmlContent = `
-        <ul class="nav nav-pills mb-3" id="pills-testi-tab" role="tablist">
-            <li class="nav-item" role="presentation"><button class="nav-link active btn-sm" data-bs-toggle="pill" data-bs-target="#testi-aktif" type="button">Tampil (Aktif)</button></li>
-            <li class="nav-item" role="presentation"><button class="nav-link btn-sm ms-2" data-bs-toggle="pill" data-bs-target="#testi-arsip" type="button">Arsip (Sembunyi)</button></li>
-        </ul>
-        <div class="mb-2 text-end"><button class="btn btn-sm btn-outline-danger" onclick="API.deleteTestimoniMassal()"><i class="fa-solid fa-trash-can"></i> Hapus yang Dicentang</button></div>
-        <div class="tab-content border border-secondary rounded" style="background: rgba(0,0,0,0.1); max-height: 300px; overflow-y:auto;">
+    // 2. Suntikkan HTML kerangka tabel dan tombol paginasi
+    container.innerHTML = `
+        <div class="mb-3 text-end">
+            <button class="btn btn-sm btn-outline-danger" onclick="API.deleteTestimoniPagingMassal()">
+                <i class="fa-solid fa-trash-can"></i> Hapus yang Dicentang
+            </button>
+        </div>
+
+        <div class="table-responsive border border-secondary rounded" style="background: rgba(0,0,0,0.1); max-height: 350px; overflow-y:auto;">
+            <table class="table table-dark table-hover align-middle small mb-0">
+                <thead style="position: sticky; top: 0; background-color: var(--bg-card); z-index: 1;">
+                    <tr>
+                        <th style="width: 40px;"><i class="fa-solid fa-check-double"></i></th>
+                        <th>User</th>
+                        <th>Ulasan & Rating</th>
+                        <th>Status Visibilitas</th>
+                        <th>Aksi Pamong</th>
+                    </tr>
+                </thead>
+                <tbody id="table-admin-testimoni-paging">
+                    <tr><td colspan="5" class="text-center text-muted py-4"><i class="fa-solid fa-spinner fa-spin me-2"></i>Menghubungkan ke Cloud Firestore...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mt-3 p-2 bg-dark rounded border border-secondary">
+            <span class="small text-muted ms-2">Menampilkan <b class="text-white">5</b> ulasan per halaman</span>
+            <div class="d-flex align-items-center gap-2">
+                <button id="btn-testi-prev" class="btn btn-sm btn-outline-info" onclick="API.fetchTestimoniPaging('PREV')" disabled>
+                    <i class="fa-solid fa-chevron-left"></i> Sebelumnya
+                </button>
+                
+                <span id="testi-page-info" class="small fw-bold text-white px-3 py-1 bg-secondary rounded">Hal 1</span>
+                
+                <button id="btn-testi-next" class="btn btn-sm btn-outline-info" onclick="API.fetchTestimoniPaging('NEXT')" disabled>
+                    Selanjutnya <i class="fa-solid fa-chevron-right"></i>
+                </button>
+            </div>
+        </div>
     `;
 
-    const aktifList = dbTestimonials.filter(t => t.Status === 'TAMPIL');
-    const arsipList = dbTestimonials.filter(t => t.Status === 'SEMBUNYI');
-
-    //  KODE BARU (SUDAH DITAMBAHKAN KOLOM AKSI & TOMBOL HAPUS INDIVIDUAL)
-const buildTable = (list, id) => {
-    // 1. Ditambahkan kolom head "Aksi" paling kanan pada tabel <thead>
-    let tbHtml = `<div class="tab-pane fade ${id === 'testi-aktif' ? 'show active' : ''}" id="${id}"><table class="table table-dark table-hover small mb-0"><thead style="position: sticky; top: 0; background-color: var(--bg-card); z-index: 1;"><tr><th><i class="fa-solid fa-check-double"></i></th><th>Tgl / User</th><th>Ulasan</th><th>Status</th><th>Aksi</th></tr></thead><tbody>`;
-    
-    // 2. Jika data kosong, colspan dinaikkan menjadi 5 kolom agar rapi
-    if(list.length === 0) tbHtml += `<tr><td colspan="5" class="text-center text-muted py-3">Tidak ada testimoni</td></tr>`;
-    else list.forEach(t => {
-        // 3. Menambahkan tombol tempat aksi hapus individual API.deleteTestimoni('${t.UID}') di kolom paling ujung <td>
-        tbHtml += `<tr>
-            <td><input type="checkbox" class="form-check-input testi-check" value="${t.UID}"></td>
-            <td><small>${t.Tanggal||''}</small><br><b>${t.Username||'Anonim'}</b></td>
-            <td>${t.Text||''}</td>
-            <td><button class="btn btn-sm ${t.Status==='TAMPIL'?'btn-outline-warning':'btn-outline-success'}" onclick="API.toggleTestimoni('${t.UID}')">${t.Status==='TAMPIL'?'Arsipkan':'Tampilkan'}</button></td>
-            <td>
-                <button class="btn btn-sm btn-outline-danger" onclick="API.deleteTestimoni('${t.UID}')" title="Hapus Ulasan">
-                    <i class="fa-solid fa-trash"></i>
-                </button>
-            </td>
-        </tr>`;
-    });
-    tbHtml += `</tbody></table></div>`;
-    return tbHtml;
-};
-
-    htmlContent += buildTable(aktifList, 'testi-aktif');
-    htmlContent += buildTable(arsipList, 'testi-arsip');
-    htmlContent += `</div>`;
-
-    container.innerHTML = htmlContent;
+    // 3. Perintah krusial: Memanggil API untuk mengisi kerangka yang baru saja dibuat di atas
+    API.fetchTestimoniPaging('FIRST');
 },
             renderTimeSlotsSetting: function() {
                 const list = document.getElementById('list-timeslots'); list.innerHTML = '';

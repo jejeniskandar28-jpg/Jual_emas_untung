@@ -732,23 +732,32 @@ const DEFAULT_CONFIG = {
             
             setupRealtimeListeners: function() {
                 try {
-                    // Sync Config
-                db.collection('erp_data').doc('appConfig').onSnapshot(doc => {
-                    if (doc.exists) { 
-                        appConfig = doc.data(); 
-                        UI.updateStoreStatus(); 
-                        UI.updateRunningText(); 
-
-                        // Tampilkan atau Sembunyikan Banner Global secara Real-time
-                        const banner = document.getElementById('global-maintenance-banner');
-                        if(banner) banner.style.display = appConfig.isMaintenance ? 'block' : 'none';
-                    }
-                });
-
+                    // 1. DATA PUBLIK: Bebas dimuat tanpa perlu Login
+                    db.collection('erp_data').doc('appConfig').onSnapshot(doc => {
+                        if (doc.exists) { 
+                            appConfig = doc.data(); 
+                            UI.updateStoreStatus(); UI.updateRunningText(); 
+                            const banner = document.getElementById('global-maintenance-banner');
+                            if(banner) banner.style.display = appConfig.isMaintenance ? 'block' : 'none';
+                        }
+                    });
+                    db.collection('gold_settings').onSnapshot(snapshot => {
+                        let tempGold = [];
+                        snapshot.forEach(doc => tempGold.push(doc.data()));
+                        tempGold.sort((a, b) => (a.Urutan !== undefined ? a.Urutan : 9999) - (b.Urutan !== undefined ? b.Urutan : 9999));
+                        dbGoldSettings = tempGold;
+                        if(sessionUser && sessionUser.Role === 'Admin') UI.renderGoldSettingsView();
+                    }, err => AppLogger.logError(err, "onSnapshot gold_settings"));
+                } catch(err) {
+                    AppLogger.logError(err, "DBService.setupRealtimeListeners");
+                }
+            },
                     // Sync Appointments (Multiuser fix)
+                    setupPrivateListeners: function() {
+                if(!isFirebaseActive || !sessionUser) return;
+                try {
                     db.collection('appointments').onSnapshot(snapshot => {
-                        let tempApts = [];
-                        snapshot.forEach(doc => tempApts.push(doc.data()));
+                        let tempApts = []; snapshot.forEach(doc => tempApts.push(doc.data()));
                         dbAppointments = tempApts;
                         if(sessionUser) {
                             if(sessionUser.Role === 'Admin') { UI.renderAdminLaporanView(); UI.renderAdminFinanceView(); }
@@ -756,21 +765,18 @@ const DEFAULT_CONFIG = {
                         }
                     }, err => AppLogger.logError(err, "onSnapshot appointments"));
 
-                    // Sync Finance
                     db.collection('finance').onSnapshot(snapshot => {
-                        let tempFin = [];
-                        snapshot.forEach(doc => tempFin.push(doc.data()));
+                        let tempFin = []; snapshot.forEach(doc => tempFin.push(doc.data()));
                         dbFinance = tempFin;
                         if(sessionUser && sessionUser.Role === 'Admin') UI.renderAdminFinanceView();
                     }, err => AppLogger.logError(err, "onSnapshot finance"));
 
-                    // Sync Users (Dibatasi 50 terbaru sebagai cache offline. Data lengkap diatur via Paginasi)
-                db.collection('users').orderBy('Timestamp', 'desc').limit(50).onSnapshot(snapshot => {
-                    let tempUsers = [];
-                    snapshot.forEach(doc => tempUsers.push(doc.data()));
-                    dbUsers = tempUsers;
-                    // HAPUS pemicu UI.renderAdminUsersView di sini agar tidak merusak tabel paginasi
-                }, err => AppLogger.logError(err, "onSnapshot users"));
+                    db.collection('users').orderBy('Timestamp', 'desc').limit(50).onSnapshot(snapshot => {
+                        let tempUsers = []; snapshot.forEach(doc => tempUsers.push(doc.data()));
+                        dbUsers = tempUsers;
+                    }, err => AppLogger.logError(err, "onSnapshot users"));
+                } catch(err) { AppLogger.logError(err, "DBService.setupPrivateListeners"); }
+            },
 
                     // Sync Gold Settings
                     // Sync Gold Settings
@@ -929,13 +935,28 @@ db.collection('gold_settings').onSnapshot(snapshot => {
 
                 // Listener status Auth Firebase
                 if(isFirebaseActive) {
-                    auth.onAuthStateChanged(user => {
+                    auth.onAuthStateChanged(async user => {
                         if(user) {
-                            const target = dbUsers.find(u => u.UID === user.uid);
+                            let target = dbUsers.find(u => u.UID === user.uid);
+                            // Ambil dari Cloud jika profil di array lokal kosong (karena diblokir di awal)
+                            if(!target) {
+                                try {
+                                    const doc = await db.collection('users').doc(user.uid).get();
+                                    if(doc.exists) target = doc.data();
+                                } catch(e) { console.warn("Load profile gagal", e); }
+                            }
+                            
                             if(target) {
                                 sessionUser = target;
                                 localStorage.setItem('erp_sessionUser', JSON.stringify(sessionUser));
+                                DBService.setupPrivateListeners(); // <--- PANGGIL DI SINI SAAT SESI PULIH
                             }
+                        } else if (!isManualLocalMode && navigator.onLine) {
+                            sessionUser = null;
+                            localStorage.removeItem('erp_sessionUser');
+                        }
+                    });
+                }
                         } else if (!isManualLocalMode && navigator.onLine) {
                             sessionUser = null;
                             localStorage.removeItem('erp_sessionUser');
@@ -2369,6 +2390,7 @@ deleteUser: function(uid) {
 
                                 // 4. Eksekusi Login Berhasil
                                 sessionUser = targetAdmin;
+                                DBService.setupPrivateListeners();
                                 localStorage.setItem('erp_sessionUser', JSON.stringify(sessionUser));
 
                                 UI.showLoading(false);

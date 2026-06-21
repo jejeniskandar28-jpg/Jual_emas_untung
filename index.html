@@ -2966,7 +2966,7 @@ const buildTable = (list, id) => {
             <td><input type="checkbox" class="form-check-input testi-check" value="${t.UID}"></td>
             <td><small>${t.Tanggal||''}</small><br><b>${t.Username||'Anonim'}</b></td>
             <td>${t.Text||''}</td>
-            <td><button class="btn btn-sm ${t.Status==='TAMPIL'?'btn-outline-warning':'btn-outline-success'}" onclick="API.toggleTestimoniStatus('${t.UID}')">${t.Status==='TAMPIL'?'Arsipkan':'Tampilkan'}</button></td>
+            <td><button class="btn btn-sm ${t.Status==='TAMPIL'?'btn-outline-warning':'btn-outline-success'}" onclick="API.toggleTestimoni('${t.UID}')">${t.Status==='TAMPIL'?'Arsipkan':'Tampilkan'}</button></td>
             <td>
                 <button class="btn btn-sm btn-outline-danger" onclick="API.deleteTestimoni('${t.UID}')" title="Hapus Ulasan">
                     <i class="fa-solid fa-trash"></i>

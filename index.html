@@ -1255,10 +1255,17 @@ if (wasDemoUser) {
             },
             
             clearAptCheck: function() {
-                selectedTransaksi = []; // Kosongkan keranjang memori
-                UI.renderAdminLaporanView();
-                UI.toast("Pilihan berhasil dibersihkan", "info");
-            },
+    selectedTransaksi = []; // Kosongkan keranjang memori
+    
+    // KODE PERBAIKAN: Cek apakah user adalah Admin atau Pelanggan
+    if (sessionUser && sessionUser.Role === 'Admin') {
+        UI.renderAdminLaporanView();
+    } else {
+        UI.renderDashboardView();
+    }
+    
+    UI.toast("Pilihan berhasil dibersihkan", "info");
+},
             // ----------------------------------------------------
 
             toggleLocalMode: async function(isChecked) {
@@ -2852,11 +2859,13 @@ deleteUser: async function(uid) {
                 });
 
                 const tbHist = document.getElementById('table-user-history'); tbHist.innerHTML = '';
-                if(uHist.length === 0) tbHist.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Belum ada riwayat selesai</td></tr>';
-                else uHist.forEach(a => {
-                    let itemsStr = a.Items.map(i => `${i.Qty}x ${i.Type==='JASA'?i.Nama:i.Kategori}`).join(', ');
-                    tbHist.innerHTML += `<tr><td><input type="checkbox" class="form-check-input rekap-check" value="${a.UID}"></td><td>${a.Tanggal}<br><small class="text-warning">${a.UID}</small></td><td>${a.Jenis_Transaksi.replace(/_/g,' ')}<br><small class="text-muted">${itemsStr}</small></td><td><span class="badge ${a.Status_Janji==='SELESAI'?'bg-success':'bg-danger'}">${a.Status_Janji}</span></td><td class="text-end fw-bold ${a.Net_Total>=0?'text-success':'text-danger'}">${a.Net_Total>=0?'+':''}${this.formatRp(a.Net_Total)}</td></tr>`;
-                });
+if(uHist.length === 0) tbHist.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Belum ada riwayat selesai</td></tr>';
+else uHist.forEach(a => {
+    let itemsStr = a.Items.map(i => `${i.Qty}x ${i.Type==='JASA'?i.Nama:i.Kategori}`).join(', ');
+    // KODE PERBAIKAN: Menambahkan isChecked dan event onchange ke checkbox
+    let isChecked = selectedTransaksi.includes(a.UID) ? 'checked' : '';
+    tbHist.innerHTML += `<tr><td><input type="checkbox" class="form-check-input rekap-check" value="${a.UID}" ${isChecked} onchange="API.toggleAptCheck('${a.UID}', this.checked)"></td><td>${a.Tanggal}<br><small class="text-warning">${a.UID}</small></td><td>${a.Jenis_Transaksi.replace(/_/g,' ')}<br><small class="text-muted">${itemsStr}</small></td><td><span class="badge ${a.Status_Janji==='SELESAI'?'bg-success':'bg-danger'}">${a.Status_Janji}</span></td><td class="text-end fw-bold ${a.Net_Total>=0?'text-success':'text-danger'}">${a.Net_Total>=0?'+':''}${this.formatRp(a.Net_Total)}</td></tr>`;
+});
 
                 if(!appConfig.showGraph) { document.getElementById('container-graph-wrapper').classList.add('d-none'); return; }
                 document.getElementById('container-graph-wrapper').classList.remove('d-none');

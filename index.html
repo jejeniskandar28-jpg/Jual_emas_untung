@@ -2068,6 +2068,10 @@ saveAppConfig: async function(isToggleOnly = false) {
                         const { value: est } = await Swal.fire({ title: 'Update Estimasi Selesai', input: 'text', inputValue: apt.EstimasiSelesai || '', showCancelButton: true }); 
                         if(est !== undefined) { apt.EstimasiSelesai = est; UI.toast("Diupdate", "success"); UI.renderAdminLaporanView(); } 
                     }
+                    else if (action === "SET_PESAN_NOTE") { 
+                        const { value: note } = await Swal.fire({ title: 'Tambah Pesan / Note', text: 'Pesan ini akan menggantikan estimasi waktu dan dapat dilihat oleh pelanggan.', input: 'text', inputValue: apt.Feedback || '', inputPlaceholder: 'Cth: Barang bisa diambil jam 4 sore...', showCancelButton: true }); 
+                        if(note !== undefined) { apt.Feedback = note; UI.toast("Pesan disimpan", "success"); UI.renderAdminLaporanView(); } 
+                    }
                     else if (action === "BARANG_SIAP") { 
                         const conf = await Swal.fire({ title: 'Barang Siap?', icon: 'question', showCancelButton: true });
                         if(conf.isConfirmed) { apt.Status_Janji = "MENUNGGU_KONF_PENERIMAAN";apt.WaktuTungguKonf = Date.now(); UI.toast("Barang Siap. Menunggu Konfirmasi Pelanggan"); UI.renderAdminLaporanView(); } 
@@ -2852,10 +2856,15 @@ deleteUser: async function(uid) {
                         btn += `<button class="btn btn-sm btn-outline-info mb-1" onclick="Swal.fire({title:'QRIS Toko', imageUrl:'${appConfig.qrisUrl}', imageWidth: 300, confirmButtonColor:'#d4af37'})"><i class="fa-solid fa-qrcode"></i> Scan QRIS</button>`;
                     }
                     
-                    let estInfo = a.EstimasiSelesai ? `<br><small class="text-info d-block mt-1">Est. Selesai:<br><b>${a.EstimasiSelesai}</b></small>` : '';
-                    let feedbackInfo = a.Feedback ? `<br><small class="text-danger d-block mt-1 fst-italic">Ket: ${a.Feedback}</small>` : '';
+                    // --- KODE BARU: Mengganti otomatis Estimasi menjadi Note
+                    let infoTambahanPelanggan = '';
+                    if (a.Status_Janji === 'MENUNGGU_KONF_PENERIMAAN' || a.Status_Janji === 'SIAP_DIAMBIL' || a.Status_Janji === 'SELESAI' || a.Status_Janji === 'BATAL') {
+                        if (a.Feedback) infoTambahanPelanggan = `<br><small class="text-warning d-block mt-1 fst-italic"><i class="fa-solid fa-message"></i> Note: ${a.Feedback}</small>`;
+                    } else {
+                        if (a.EstimasiSelesai) infoTambahanPelanggan = `<br><small class="text-info d-block mt-1"><i class="fa-solid fa-clock"></i> Est. Selesai:<br><b>${a.EstimasiSelesai}</b></small>`;
+                    }
 
-                    tbApt.innerHTML += `<tr><td>${a.Tanggal} ${a.Waktu}<br><small class="text-warning">${a.UID}</small></td><td>${a.Jenis_Transaksi.replace(/_/g,' ')}<br><small class="text-muted">${itemsStr}</small></td><td><span class="badge bg-secondary" style="white-space:normal;">${a.Status_Janji.replace(/_/g,' ')}</span>${estInfo}${feedbackInfo}</td><td class="text-end fw-bold ${a.Net_Total>=0?'text-success':'text-danger'}">${a.Net_Total>=0?'+':''}${this.formatRp(a.Net_Total)}</td><td>${btn}</td></tr>`;
+                    tbApt.innerHTML += `<tr><td>${a.Tanggal} ${a.Waktu}<br><small class="text-warning">${a.UID}</small></td><td>${a.Jenis_Transaksi.replace(/_/g,' ')}<br><small class="text-muted">${itemsStr}</small></td><td><span class="badge bg-secondary" style="white-space:normal;">${a.Status_Janji.replace(/_/g,' ')}</span>${infoTambahanPelanggan}</td><td class="text-end fw-bold ${a.Net_Total>=0?'text-success':'text-danger'}">${a.Net_Total>=0?'+':''}${this.formatRp(a.Net_Total)}</td><td>${btn}</td></tr>`;
                 });
 
                 const tbHist = document.getElementById('table-user-history'); tbHist.innerHTML = '';
@@ -2993,9 +3002,27 @@ else uHist.forEach(a => {
                         else if (a.Status_Janji === 'SELESAI') btn = `<span class="badge bg-success w-100 py-2 mb-2"><i class="fa-solid fa-check"></i> Selesai</span><button class="btn btn-sm btn-outline-info mb-1 w-100" onclick="API.printNota('${a.UID}')"><i class="fa-solid fa-print"></i> Struk</button>`;
                         else if (a.Status_Janji === 'BATAL') btn = `<span class="badge bg-danger w-100 py-2"><i class="fa-solid fa-xmark"></i> Dibatalkan</span>`;
                         
+                        // --- KODE BARU: Memunculkan Info Estimasi/Pesan di Tabel Admin ---
+                        let adminInfoTambahan = '';
+                        if (a.Status_Janji === 'MENUNGGU_KONF_PENERIMAAN' || a.Status_Janji === 'SIAP_DIAMBIL' || a.Status_Janji === 'SELESAI' || a.Status_Janji === 'BATAL') {
+                            if (a.Feedback) adminInfoTambahan = `<br><small class="text-warning d-block mt-1"><i class="fa-solid fa-message"></i> Note: ${a.Feedback}</small>`;
+                        } else {
+                            if (a.EstimasiSelesai) adminInfoTambahan = `<br><small class="text-info d-block mt-1"><i class="fa-solid fa-clock"></i> Est: ${a.EstimasiSelesai}</small>`;
+                        }
+
                         let extraOpts = '';
                         if(a.Status_Janji !== 'SELESAI' && a.Status_Janji !== 'BATAL') {
-                            extraOpts = `<hr class="border-secondary my-2"><div class="dropdown"><button class="btn btn-sm btn-outline-secondary w-100 dropdown-toggle" type="button" data-bs-toggle="dropdown">Opsi Lain</button><ul class="dropdown-menu dropdown-menu-dark shadow"><li><a class="dropdown-item" href="#" onclick="UI.editMarkupApt('${a.UID}')"><i class="fa-solid fa-pen-to-square text-info"></i> Edit Grand Total</a></li><li><a class="dropdown-item" href="#" onclick="API.sendWA('${a.UID}')"><i class="fa-brands fa-whatsapp text-success"></i> Chat Status</a></li></ul></div>`;
+                            extraOpts = `<hr class="border-secondary my-2"><div class="dropdown"><button class="btn btn-sm btn-outline-secondary w-100 dropdown-toggle" type="button" data-bs-toggle="dropdown">Opsi Lain</button><ul class="dropdown-menu dropdown-menu-dark shadow"><li><a class="dropdown-item" href="#" onclick="UI.editMarkupApt('${a.UID}')"><i class="fa-solid fa-pen-to-square text-info"></i> Edit Grand Total</a></li><li><a class="dropdown-item" href="#" onclick="API.sendWA('${a.UID}')"><i class="fa-brands fa-whatsapp text-success"></i> Chat Status</a></li>`;
+                            
+                            // --- KODE BARU: Menu Edit Estimasi -> Berubah Jadi Tambah Note jika sudah Selesai/Siap
+                            if (a.Jenis_Transaksi.includes('JASA') || a.Jenis_Transaksi === 'GABUNGAN') {
+                                if (a.Status_Janji === 'MENUNGGU_KONF_PENERIMAAN' || a.Status_Janji === 'SIAP_DIAMBIL') {
+                                    extraOpts += `<li><a class="dropdown-item" href="#" onclick="API.processAction('${a.UID}', 'SET_PESAN_NOTE')"><i class="fa-solid fa-message text-warning"></i> Tambah / Edit Note</a></li>`;
+                                } else if (a.EstimasiSelesai || a.Status_Janji === 'PROSES_JASA') {
+                                    extraOpts += `<li><a class="dropdown-item" href="#" onclick="API.processAction('${a.UID}', 'SET_ESTIMASI_SELESAI')"><i class="fa-solid fa-clock text-warning"></i> Edit Estimasi Waktu</a></li>`;
+                                }
+                            }
+                            extraOpts += `</ul></div>`;
                         }
                         
                         // BARU: Logika Checkbox berdasarkan Keranjang Memori
@@ -3007,7 +3034,7 @@ else uHist.forEach(a => {
                             <td>${a.Tanggal}<br>${a.Waktu}<br><small class="text-warning">${a.UID}</small></td>
                             <td><span class="badge bg-info text-dark mb-1">${a.Jenis_Transaksi.replace(/_/g,' ')}</span><br><small class="text-muted d-block">${itemsStr}</small></td>
                             <td>${kasStr}${payStr}</td>
-                            <td><span class="badge bg-secondary mb-1" style="white-space:normal;">${a.Status_Janji.replace(/_/g,' ')}</span></td>
+                            <td><span class="badge bg-secondary mb-1" style="white-space:normal;">${a.Status_Janji.replace(/_/g,' ')}</span>${adminInfoTambahan}</td>
                             <td>${btn}${extraOpts}</td>
                         </tr>`;
                     });
